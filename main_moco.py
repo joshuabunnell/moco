@@ -15,8 +15,10 @@ import shutil
 import time
 import warnings
 
-import deeplearning.cross_image_ssl.moco.builder
-import deeplearning.cross_image_ssl.moco.loader
+# import deeplearning.cross_image_ssl.moco.builder
+# import deeplearning.cross_image_ssl.moco.loader
+import moco.builder as builder
+import moco.loader as loader
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -29,6 +31,8 @@ import torch.utils.data.distributed
 import torchvision.datasets as datasets
 import torchvision.models as models
 import torchvision.transforms as transforms
+
+import torch_directml # AMD GPU windows support
 
 
 model_names = sorted(
@@ -245,7 +249,7 @@ def main_worker(gpu, ngpus_per_node, args):
         )
     # create model
     print("=> creating model '{}'".format(args.arch))
-    model = deeplearning.cross_image_ssl.moco.builder.MoCo(
+    model = builder.MoCo(
         models.__dict__[args.arch],
         args.moco_dim,
         args.moco_k,
@@ -333,7 +337,7 @@ def main_worker(gpu, ngpus_per_node, args):
             ),
             transforms.RandomGrayscale(p=0.2),
             transforms.RandomApply(
-                [deeplearning.cross_image_ssl.moco.loader.GaussianBlur([0.1, 2.0])],
+                [loader.GaussianBlur([0.1, 2.0])],
                 p=0.5,
             ),
             transforms.RandomHorizontalFlip(),
@@ -519,6 +523,15 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
+    
+def get_best_device():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    try:
+        import torch_directml
+        return torch_directml.device()
+    except ImportError:
+        return torch.device("cpu")
 
 
 if __name__ == "__main__":
