@@ -1,3 +1,5 @@
+****IM EDITING METAS STUFF THIS IS NOT MY ORIGINAL STUFF****
+
 ## MoCo: Momentum Contrast for Unsupervised Visual Representation Learning
 
 <p align="center">
