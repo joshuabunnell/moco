@@ -32,8 +32,6 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import torchvision.transforms as transforms
 
-import torch_directml # AMD GPU windows support
-
 
 model_names = sorted(
     name
@@ -357,7 +355,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     train_dataset = datasets.ImageFolder(
         traindir,
-        deeplearning.cross_image_ssl.moco.loader.TwoCropsTransform(
+        loader.TwoCropsTransform(
             transforms.Compose(augmentation)
         ),
     )
@@ -523,16 +521,6 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
-    
-def get_best_device():
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    try:
-        import torch_directml
-        return torch_directml.device()
-    except ImportError:
-        return torch.device("cpu")
-
 
 if __name__ == "__main__":
     main()
