@@ -15,8 +15,6 @@ import shutil
 import time
 import warnings
 
-# import deeplearning.cross_image_ssl.moco.builder
-# import deeplearning.cross_image_ssl.moco.loader
 import moco.builder as builder
 import moco.loader as loader
 import torch
