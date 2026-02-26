@@ -15,8 +15,6 @@ import shutil
 import time
 import warnings
 
-import moco.builder as builder
-import moco.loader as loader
 import torch
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -29,7 +27,16 @@ import torch.utils.data.distributed
 import torchvision.datasets as datasets
 import torchvision.models as models
 import torchvision.transforms as transforms
+from monai.transforms.compose import Compose
+from monai.transforms.croppad.dictionary import RandSpatialCropd
+from monai.transforms.intensity.dictionary import (
+    RandGaussianNoised,
+    RandGaussianSmoothd,
+)
+from monai.transforms.spatial.dictionary import RandFlipd, RandRotated
+from monai.transforms.utility.dictionary import Lambdad
 
+import moco.builder as builder
 
 model_names = sorted(
     name
@@ -320,43 +327,8 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # Data loading code
     traindir = os.path.join(args.data, "train")
-    normalize = transforms.Normalize(
-        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-    )
-    if args.aug_plus:
-        # MoCo v2's aug: similar to SimCLR https://arxiv.org/abs/2002.05709
-        augmentation = [
-            transforms.RandomResizedCrop(224, scale=(0.2, 1.0)),
-            transforms.RandomApply(
-                [transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)],
-                p=0.8,  # not strengthened
-            ),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.RandomApply(
-                [loader.GaussianBlur([0.1, 2.0])],
-                p=0.5,
-            ),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ]
-    else:
-        # MoCo v1's aug: the same as InstDisc https://arxiv.org/abs/1805.01978
-        augmentation = [
-            transforms.RandomResizedCrop(224, scale=(0.2, 1.0)),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.ColorJitter(0.4, 0.4, 0.4, 0.4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ]
 
-    train_dataset = datasets.ImageFolder(
-        traindir,
-        loader.TwoCropsTransform(
-            transforms.Compose(augmentation)
-        ),
-    )
+    train_dataset = CTMoCoDataset(traindir)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -519,6 +491,7 @@ def accuracy(output, target, topk=(1,)):
             correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
+
 
 if __name__ == "__main__":
     main()
