@@ -96,10 +96,10 @@ def build_hpc_dataset(input_base_dir, output_dir, min_slices=10):
 
 
 if __name__ == "__main__":
-    # Input: path to organized DICOM directories (StudyUID/SeriesUID structure)
-    INPUT_DICOM_DIR = "/path/to/raw/dicoms"
+    INPUT_DICOM_DIR_1 = "/scratch/jpbunnel/organized_ref/CT_COLONOGRAPHY"
+    INPUT_DICOM_DIR_2 = "/scratch/jpbunnel/organized_ref/Pediatric-CT-SEG"
 
-    # Output: where preprocessed .pt files will be saved
-    OUTPUT_PT_DIR = "/path/to/hpc_dataset"
+    OUTPUT_PT_DIR = "/scratch/jpbunnel/pretraining-dataset"
 
-    build_hpc_dataset(INPUT_DICOM_DIR, OUTPUT_PT_DIR)
+    build_hpc_dataset(INPUT_DICOM_DIR_1, OUTPUT_PT_DIR)
+    build_hpc_dataset(INPUT_DICOM_DIR_2, OUTPUT_PT_DIR)
