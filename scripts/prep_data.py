@@ -1,3 +1,4 @@
+import multiprocessing
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -10,17 +11,30 @@ from monai.transforms.spatial.dictionary import Orientationd, Spacingd
 from monai.transforms.utility.dictionary import EnsureChannelFirstd
 from tqdm import tqdm
 
-prep_transforms = Compose(
-    [
-        LoadImaged(keys=["image"], reader="ITKReader", image_only=False),
-        EnsureChannelFirstd(keys=["image"], channel_dim="no_channel"),
-        Orientationd(keys=["image"], axcodes="RAS"),
-        Spacingd(keys=["image"], pixdim=(1.0, 1.0, 1.0), mode="bilinear"),
-        ScaleIntensityRanged(
-            keys=["image"], a_min=-150, a_max=250, b_min=0.0, b_max=1.0, clip=True
-        ),
-    ]
-)
+
+def _build_transforms():
+    """Instantiate transforms fresh per-worker process.
+
+    Defined as a function (not module-level) so that each spawned worker
+    builds its own clean instance. This avoids deadlocks caused by forking
+    a process that already holds C-extension locks (ITK, OpenMP, etc.).
+    """
+    return Compose(
+        [
+            # PydicomReader is MONAI's built-in DICOM reader — no ITK required.
+            # It accepts a directory path and assembles slices into a 3-D volume.
+            LoadImaged(keys=["image"], reader="PydicomReader", image_only=False),
+            EnsureChannelFirstd(keys=["image"], channel_dim="no_channel"),
+            # labels=None: use the meta-tensor's own 'space' field (suppresses FutureWarning).
+            Orientationd(keys=["image"], axcodes="RAS", labels=None),
+            # Resample to 1 mm isotropic so features are scale-invariant across scanners.
+            Spacingd(keys=["image"], pixdim=(1.0, 1.0, 1.0), mode="bilinear"),
+            # Colon HU window: -150 HU (fat) to 250 HU (soft tissue/polyp).
+            ScaleIntensityRanged(
+                keys=["image"], a_min=-150, a_max=250, b_min=0.0, b_max=1.0, clip=True
+            ),
+        ]
+    )
 
 
 def process_single_volume(series_dir, train_output_path):
@@ -36,9 +50,13 @@ def process_single_volume(series_dir, train_output_path):
         if save_file.exists():
             return "skipped"
 
+        # Build transforms inside the worker so each spawned process has its
+        # own instance — avoids shared C-extension state across processes.
+        transforms = _build_transforms()
+
         # Apply preprocessing transforms
         data = {"image": series_dir}
-        processed_data = prep_transforms(data)
+        processed_data = transforms(data)
 
         image_tensor = processed_data["image"]
         image_tensor = image_tensor.to(torch.float16)
@@ -98,12 +116,15 @@ def build_hpc_dataset(input_base_dir, output_dir, min_slices=10, max_workers=8):
 
 
 if __name__ == "__main__":
-    # Adjust max_workers to match the number of CPUs requested from the HPC
-    CPU_CORES = 16
+    multiprocessing.set_start_method("spawn", force=True)
 
-    INPUT_DICOM_DIR_1 = "/scratch/jpbunnel/organized_ref/CT_COLONOGRAPHY"
-    INPUT_DICOM_DIR_2 = "/scratch/jpbunnel/organized_ref/Pediatric-CT-SEG"
-    OUTPUT_PT_DIR = "/scratch/jpbunnel/pretraining-dataset"
+    CPU_CORES = 1
+
+    INPUT_DICOM_DIR_1 = (
+        "/Users/joshuabunnell/Projects/data/dicom/ct-colonography_organized"
+    )
+    OUTPUT_PT_DIR = (
+        "/Users/joshuabunnell/Projects/data/dicom/pt-ct-colonography_organized"
+    )
 
     build_hpc_dataset(INPUT_DICOM_DIR_1, OUTPUT_PT_DIR, max_workers=CPU_CORES)
-    build_hpc_dataset(INPUT_DICOM_DIR_2, OUTPUT_PT_DIR, max_workers=CPU_CORES)
