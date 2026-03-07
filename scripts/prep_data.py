@@ -118,13 +118,13 @@ def build_hpc_dataset(input_base_dir, output_dir, min_slices=10, max_workers=8):
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn", force=True)
 
-    CPU_CORES = 1
+    CPU_CORES = 16
 
-    INPUT_DICOM_DIR_1 = (
-        "/Users/joshuabunnell/Projects/data/dicom/ct-colonography_organized"
-    )
-    OUTPUT_PT_DIR = (
-        "/Users/joshuabunnell/Projects/data/dicom/pt-ct-colonography_organized"
-    )
+    INPUT_DICOM_DIR_1 = "/scratch/jpbunnel/organized_ref/CT_COLONOGRAPHY"
+
+    INPUT_DICOM_DIR_2 = "/scratch/jpbunnel/organized_ref/Pediatric-CT-SEG"
+
+    OUTPUT_PT_DIR = "/scratch/jpbunnel/transformed-tensors/"
 
     build_hpc_dataset(INPUT_DICOM_DIR_1, OUTPUT_PT_DIR, max_workers=CPU_CORES)
+    build_hpc_dataset(INPUT_DICOM_DIR_2, OUTPUT_PT_DIR, max_workers=CPU_CORES)
