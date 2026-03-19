@@ -130,4 +130,5 @@ dmypy.json
 .pyre/
 
 /.github/copilot-instructions.md
+CLAUDE.md
 .DS_Store
