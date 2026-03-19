@@ -17,7 +17,7 @@ TRANSFORMS = Compose([
     LoadImaged(keys=["image"], reader="PydicomReader", image_only=False),
     EnsureChannelFirstd(keys=["image"], channel_dim="no_channel"),
     # Reorient to RAS so all volumes share a consistent anatomical coordinate frame.
-    Orientationd(keys=["image"], axcodes="RAS"),
+    Orientationd(keys=["image"], axcodes="RAS", labels=None),
     # 1mm isotropic voxels normalize slice-thickness differences across scanners.
     Spacingd(keys=["image"], pixdim=(1.0, 1.0, 1.0), mode="bilinear"),
     # Soft-tissue HU window: captures colon wall, fat, and muscle; suppresses bone and air.
