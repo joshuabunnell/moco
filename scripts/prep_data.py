@@ -11,18 +11,21 @@ from monai.transforms.spatial.dictionary import Orientationd, Spacingd
 from monai.transforms.utility.dictionary import EnsureChannelFirstd
 from tqdm import tqdm
 
-
-TRANSFORMS = Compose([
-    # image_only=False preserves the affine/spacing metadata needed by the spatial transforms below.
-    LoadImaged(keys=["image"], reader="PydicomReader", image_only=False),
-    EnsureChannelFirstd(keys=["image"], channel_dim="no_channel"),
-    # Reorient to RAS so all volumes share a consistent anatomical coordinate frame.
-    Orientationd(keys=["image"], axcodes="RAS", labels=None),
-    # 1mm isotropic voxels normalize slice-thickness differences across scanners.
-    Spacingd(keys=["image"], pixdim=(1.0, 1.0, 1.0), mode="bilinear"),
-    # Soft-tissue HU window: captures colon wall, fat, and muscle; suppresses bone and air.
-    ScaleIntensityRanged(keys=["image"], a_min=-150, a_max=250, b_min=0.0, b_max=1.0, clip=True),
-])
+TRANSFORMS = Compose(
+    [
+        # image_only=False preserves the affine/spacing metadata needed by the spatial transforms below.
+        LoadImaged(keys=["image"], reader="PydicomReader", image_only=False),
+        EnsureChannelFirstd(keys=["image"], channel_dim="no_channel"),
+        # Reorient to RAS so all volumes share a consistent anatomical coordinate frame.
+        Orientationd(keys=["image"], axcodes="RAS", labels=None),
+        # 1mm isotropic voxels normalize slice-thickness differences across scanners.
+        Spacingd(keys=["image"], pixdim=(1.0, 1.0, 1.0), mode="bilinear"),
+        # Soft-tissue HU window: captures colon wall, fat, and muscle; suppresses bone and air.
+        ScaleIntensityRanged(
+            keys=["image"], a_min=-150, a_max=250, b_min=0.0, b_max=1.0, clip=True
+        ),
+    ]
+)
 
 
 def find_series_dirs(root: Path, min_slices: int = 10) -> list[Path]:
@@ -64,7 +67,9 @@ def preprocess(input_dir: str, cache_dir: str, num_workers: int, min_slices: int
     # ProcessPool maps one series per worker process — clean, no shared memory,
     # no DataLoader semaphores that can hang under SLURM resource limits.
     with Pool(processes=num_workers) as pool:
-        for _ in tqdm(pool.imap_unordered(process_one, args), total=len(args), desc="Caching"):
+        for _ in tqdm(
+            pool.imap_unordered(process_one, args), total=len(args), desc="Caching"
+        ):
             pass
 
 
@@ -73,13 +78,13 @@ if __name__ == "__main__":
     num_workers = int(os.environ.get("SLURM_CPUS_PER_TASK", 8))
     print(f"Using {num_workers} workers")
 
-    # INPUT_DIR1 = "/scratch/jpbunnel/organized_ref/CT_COLONOGRAPHY"
-    # INPUT_DIR2 = "/scratch/jpbunnel/organized_ref/Pediatric-CT-SEG"
-    # CACHE_DIR  = "/scratch/jpbunnel/cached-tensors/"
+    INPUT_DIR1 = "/scratch/jpbunnel/organized_ref/CT_COLONOGRAPHY"
+    INPUT_DIR2 = "/scratch/jpbunnel/organized_ref/Pediatric-CT-SEG"
+    CACHE_DIR = "/scratch/jpbunnel/cached-tensors/"
 
-    INPUT_DIR1 = "/Users/joshuabunnell/Projects/data/dicom/ct-colonography_organized"
-    INPUT_DIR2 = "/Users/joshuabunnell/Projects/data/dicom/pediatric-ct-seg_organized"
-    CACHE_DIR  = "/Users/joshuabunnell/Projects/data/dicom/cached-tensors/"
+    # INPUT_DIR1 = "/Users/joshuabunnell/Projects/data/dicom/ct-colonography_organized"
+    # INPUT_DIR2 = "/Users/joshuabunnell/Projects/data/dicom/pediatric-ct-seg_organized"
+    # CACHE_DIR  = "/Users/joshuabunnell/Projects/data/dicom/cached-tensors/"
 
     preprocess(INPUT_DIR1, CACHE_DIR, num_workers)
     preprocess(INPUT_DIR2, CACHE_DIR, num_workers)
