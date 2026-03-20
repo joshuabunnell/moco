@@ -48,8 +48,8 @@ if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
         -c 4 \
         --mem=16G \
         -t 0-00:30:00 \
-        -p htc \
-        -q htc \
+        -p public \
+        -q public \
         -o "slurm.prep.%A_%a.out" \
         -e "slurm.prep.%A_%a.err" \
         --mail-type=ALL \
