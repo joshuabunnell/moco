@@ -24,19 +24,9 @@ import torch.nn.parallel
 import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
-import torchvision.datasets as datasets
 import torchvision.models as models
-import torchvision.transforms as transforms
-from monai.transforms.compose import Compose
-from monai.transforms.croppad.dictionary import RandSpatialCropd
-from monai.transforms.intensity.dictionary import (
-    RandGaussianNoised,
-    RandGaussianSmoothd,
-)
-from monai.transforms.spatial.dictionary import RandFlipd, RandRotated
-from monai.transforms.utility.dictionary import Lambdad
-
 import moco.builder as builder
+from moco.CTMoCoDataset import CTMoCoDataset
 
 model_names = sorted(
     name
@@ -182,10 +172,18 @@ parser.add_argument(
     "--aug-plus", action="store_true", help="use moco v2 data augmentation"
 )
 parser.add_argument("--cos", action="store_true", help="use cosine lr schedule")
+parser.add_argument(
+    "--output-dir",
+    default=".",
+    type=str,
+    help="directory to save checkpoints (default: current directory)",
+)
 
 
 def main():
     args = parser.parse_args()
+
+    os.makedirs(args.output_dir, exist_ok=True)
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -325,10 +323,9 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
 
-    # Data loading code
-    traindir = os.path.join(args.data, "train")
-
-    train_dataset = CTMoCoDataset(traindir)
+    # Data loading code — cached .pt tensors live directly under args.data,
+    # not in a train/ subdirectory (no labels for self-supervised pretraining)
+    train_dataset = CTMoCoDataset(args.data)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -364,7 +361,9 @@ def main_worker(gpu, ngpus_per_node, args):
                     "optimizer": optimizer.state_dict(),
                 },
                 is_best=False,
-                filename="checkpoint_{:04d}.pth.tar".format(epoch),
+                filename=os.path.join(
+                    args.output_dir, "checkpoint_{:04d}.pth.tar".format(epoch)
+                ),
             )
 
 

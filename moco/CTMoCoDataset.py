@@ -1,7 +1,9 @@
 import glob
 import os
 
+import numpy as np
 import torch
+import torch.serialization
 from monai.transforms.compose import Compose
 from monai.transforms.croppad.dictionary import RandSpatialCropd
 from monai.transforms.intensity.dictionary import (
@@ -11,6 +13,15 @@ from monai.transforms.intensity.dictionary import (
 from monai.transforms.spatial.dictionary import RandFlipd, RandRotated
 from monai.transforms.utility.dictionary import Lambdad
 from torch.utils.data import Dataset
+
+# MONAI MetaTensor serializes numpy affine/metadata alongside the tensor.
+# PyTorch 2.6+ validates globals even with weights_only=False, so we must
+# allowlist the numpy types used by MONAI before any torch.load call.
+torch.serialization.add_safe_globals([
+    np._core.multiarray._reconstruct,
+    np.ndarray,
+    np.dtype,
+])
 
 
 class CTMoCoDataset(Dataset):
@@ -44,7 +55,7 @@ class CTMoCoDataset(Dataset):
 
     def __getitem__(self, idx):
         # Load the saved 3D volume
-        volume = {"image": torch.load(self.files[idx])}
+        volume = {"image": torch.load(self.files[idx], weights_only=False)}
 
         # Extract the base crop
         base_crop = self.extract_crop(volume)
