@@ -16,6 +16,8 @@ set -e
 module load mamba/latest
 source activate moco_env
 
+PYTHON=/home/jpbunnel/.conda/envs/moco_env/bin/python
+
 export PYTHONUNBUFFERED=1
 
 cd /home/jpbunnel/moco/
@@ -31,7 +33,7 @@ if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
     git stash
     git pull
 
-    python scripts/prep_data.py --discover --manifest "${MANIFEST}"
+    "${PYTHON}" scripts/prep_data.py --discover --manifest "${MANIFEST}"
 
     TOTAL=$(wc -l < "${MANIFEST}")
     if [ "${TOTAL}" -eq 0 ]; then
@@ -46,8 +48,8 @@ if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
         -c 4 \
         --mem=16G \
         -t 0-00:30:00 \
-        -p public \
-        -q public \
+        -p htc \
+        -q htc \
         -o "slurm.prep.%A_%a.out" \
         -e "slurm.prep.%A_%a.err" \
         --mail-type=ALL \
@@ -59,7 +61,7 @@ else
     # Phase 2 — process one series (runs once per array task)
     # SLURM sets SLURM_ARRAY_TASK_ID automatically. No IPC, no shared memory.
     # -----------------------------------------------------------------------
-    python scripts/prep_data.py \
+    "${PYTHON}" scripts/prep_data.py \
         --process-index "${SLURM_ARRAY_TASK_ID}" \
         --manifest "${MANIFEST}"
 fi

@@ -29,7 +29,7 @@ TRANSFORMS = Compose(
     [
         LoadImaged(keys=["image"], reader="PydicomReader", image_only=False),
         EnsureChannelFirstd(keys=["image"], channel_dim="no_channel"),
-        Orientationd(keys=["image"], axcodes="RAS"),
+        Orientationd(keys=["image"], axcodes="RAS", labels=None),
         Spacingd(keys=["image"], pixdim=(1.0, 1.0, 1.0), mode="bilinear"),
         ScaleIntensityRanged(
             keys=["image"],
