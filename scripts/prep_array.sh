@@ -8,8 +8,8 @@ set -e
 #SBATCH -t 0-01:00:00
 #SBATCH -p public
 #SBATCH -q public
-#SBATCH -o slurm.discover.%j.out
-#SBATCH -e slurm.discover.%j.err
+#SBATCH -o /scratch/jpbunnel/logs/slurm.discover.%j.out
+#SBATCH -e /scratch/jpbunnel/logs/slurm.discover.%j.err
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=%u@asu.edu
 
@@ -30,6 +30,7 @@ if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
     # Walks input dirs, writes manifest, then re-submits this same script
     # as a SLURM array job sized to the number of series found.
     # -----------------------------------------------------------------------
+    mkdir -p /scratch/jpbunnel/logs
     git stash
     git pull
 
@@ -50,8 +51,8 @@ if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
         -t 0-00:30:00 \
         -p public \
         -q public \
-        -o "slurm.prep.%A_%a.out" \
-        -e "slurm.prep.%A_%a.err" \
+        -o "/scratch/jpbunnel/logs/slurm.prep.%A_%a.out" \
+        -e "/scratch/jpbunnel/logs/slurm.prep.%A_%a.err" \
         --mail-type=ALL \
         --mail-user=%u@asu.edu \
         scripts/prep_array.sh
