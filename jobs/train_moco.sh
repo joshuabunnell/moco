@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH -N 1
 #SBATCH -n 1
-#SBATCH -c 8
-#SBATCH --mem=64G
+#SBATCH -c 32
+#SBATCH --mem=128G
 #SBATCH --gres=gpu:a100:2
-#SBATCH -t 2-00:00:00
+#SBATCH -t 3-00:00:00
 #SBATCH -p public
 #SBATCH -q public
 #SBATCH -o /scratch/jpbunnel/logs/moco-train.%j.out
@@ -37,10 +37,11 @@ mkdir -p "${OUTPUT_DIR}" /scratch/jpbunnel/logs
     --batch-size 256 \
     --lr 0.03 \
     --moco-dim 128 \
-    --moco-k 65536 \
+    --moco-k 4096 \
     --moco-m 0.999 \
     --moco-t 0.07 \
-    --workers 8 \
+    --workers 32 \
+    --save-freq 50 \
     --multiprocessing-distributed \
     --world-size 1 \
     --rank 0 \

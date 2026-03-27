@@ -172,6 +172,7 @@ parser.add_argument(
     "--aug-plus", action="store_true", help="use moco v2 data augmentation"
 )
 parser.add_argument("--cos", action="store_true", help="use cosine lr schedule")
+parser.add_argument("--save-freq", default=50, type=int, help="checkpoint save frequency in epochs (default: 50)")
 parser.add_argument(
     "--output-dir",
     default=".",
@@ -353,18 +354,19 @@ def main_worker(gpu, ngpus_per_node, args):
         if not args.multiprocessing_distributed or (
             args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
         ):
-            save_checkpoint(
-                {
-                    "epoch": epoch + 1,
-                    "arch": args.arch,
-                    "state_dict": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                },
-                is_best=False,
-                filename=os.path.join(
-                    args.output_dir, "checkpoint_{:04d}.pth.tar".format(epoch)
-                ),
-            )
+            if (epoch + 1) % args.save_freq == 0 or (epoch + 1) == args.epochs:
+                save_checkpoint(
+                    {
+                        "epoch": epoch + 1,
+                        "arch": args.arch,
+                        "state_dict": model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                    },
+                    is_best=False,
+                    filename=os.path.join(
+                        args.output_dir, "checkpoint_{:04d}.pth.tar".format(epoch)
+                    ),
+                )
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
