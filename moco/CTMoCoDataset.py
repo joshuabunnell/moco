@@ -26,6 +26,11 @@ torch.serialization.add_safe_globals([
 ])
 
 
+def _to_resnet_format(x):
+    # (1, 224, 224, 3) -> (3, 224, 224) for ResNet input
+    return x[0].permute(2, 0, 1)
+
+
 class CTMoCoDataset(Dataset):
     def __init__(self, data_dir):
         self.files = glob.glob(os.path.join(data_dir, "**/*.pt"), recursive=True)
@@ -48,7 +53,7 @@ class CTMoCoDataset(Dataset):
                 RandGaussianNoised(keys=["image"], prob=0.5, std=0.05),
                 RandGaussianSmoothd(keys=["image"], prob=0.5, sigma_x=(0.5, 1.5)),
                 # Format for ResNet: (1, 224, 224, 3) -> (3, 224, 224)
-                Lambdad(keys=["image"], func=lambda x: x[0].permute(2, 0, 1)),
+                Lambdad(keys=["image"], func=_to_resnet_format),
             ]
         )
 
