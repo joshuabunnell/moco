@@ -43,6 +43,5 @@ mkdir -p "${OUTPUT_DIR}" /scratch/jpbunnel/logs
     --multiprocessing-distributed \
     --world-size 1 \
     --rank 0 \
-    --dist-url "tcp://localhost:${MASTER_PORT}" \
     --output-dir "${OUTPUT_DIR}" \
     --print-freq 5
