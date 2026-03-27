@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.serialization
 from monai.transforms.compose import Compose
-from monai.transforms.croppad.dictionary import CenterSpatialCropd, RandSpatialCropd
+from monai.transforms.croppad.dictionary import CenterSpatialCropd, RandSpatialCropd, ResizeWithPadOrCropd
 from monai.transforms.intensity.dictionary import (
     RandGaussianNoised,
     RandGaussianSmoothd,
@@ -50,8 +50,8 @@ class CTMoCoDataset(Dataset):
                     keys=["image"], prob=0.5, spatial_axis=2
                 ),  # Channel/Z-Axis Reversal
                 RandRotated(keys=["image"], prob=0.5, range_x=0.26),  # ~15 degrees
-                # Rotation can slightly change output size; re-crop to guarantee fixed shape
-                CenterSpatialCropd(keys=["image"], roi_size=(224, 224, 3)),
+                # Rotation can slightly change output size; pad/crop to guarantee fixed shape
+                ResizeWithPadOrCropd(keys=["image"], spatial_size=(224, 224, 3)),
                 RandGaussianNoised(keys=["image"], prob=0.5, std=0.05),
                 RandGaussianSmoothd(keys=["image"], prob=0.5, sigma_x=(0.5, 1.5)),
                 # Format for ResNet: (1, 224, 224, 3) -> (3, 224, 224)
