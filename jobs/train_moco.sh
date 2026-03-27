@@ -28,7 +28,6 @@ mkdir -p "${OUTPUT_DIR}" /scratch/jpbunnel/logs
 
 # main_moco.py uses mp.spawn internally to launch one process per GPU.
 # No torchrun needed — just pass --multiprocessing-distributed.
-# tcp://localhost with a random port avoids collisions with other jobs.
 "${PYTHON}" main_moco.py "${DATA_DIR}" \
     --arch resnet50 \
     --mlp \
@@ -40,10 +39,10 @@ mkdir -p "${OUTPUT_DIR}" /scratch/jpbunnel/logs
     --moco-k 65536 \
     --moco-m 0.999 \
     --moco-t 0.07 \
-    --workers 4 \
+    --workers 8 \
     --multiprocessing-distributed \
     --world-size 1 \
     --rank 0 \
-    --dist-url "tcp://localhost:23456" \
+    --dist-url "tcp://localhost:${MASTER_PORT}" \
     --output-dir "${OUTPUT_DIR}" \
     --print-freq 5

@@ -16,11 +16,13 @@ from torch.utils.data import Dataset
 
 # MONAI MetaTensor serializes numpy affine/metadata alongside the tensor.
 # PyTorch 2.6+ validates globals even with weights_only=False, so we must
-# allowlist the numpy types used by MONAI before any torch.load call.
+# allowlist the types used by MONAI before any torch.load call.
+from monai.data.meta_tensor import MetaTensor
+
 torch.serialization.add_safe_globals([
-    np._core.multiarray._reconstruct,
     np.ndarray,
     np.dtype,
+    MetaTensor,
 ])
 
 
