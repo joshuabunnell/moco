@@ -172,6 +172,7 @@ parser.add_argument(
     "--aug-plus", action="store_true", help="use moco v2 data augmentation"
 )
 parser.add_argument("--cos", action="store_true", help="use cosine lr schedule")
+parser.add_argument("--crops-per-volume", default=20, type=int, help="random crops per volume per epoch (default: 20)")
 parser.add_argument("--save-freq", default=50, type=int, help="checkpoint save frequency in epochs (default: 50)")
 parser.add_argument(
     "--output-dir",
@@ -326,7 +327,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # Data loading code — cached .pt tensors live directly under args.data,
     # not in a train/ subdirectory (no labels for self-supervised pretraining)
-    train_dataset = CTMoCoDataset(args.data)
+    train_dataset = CTMoCoDataset(args.data, crops_per_volume=args.crops_per_volume)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)

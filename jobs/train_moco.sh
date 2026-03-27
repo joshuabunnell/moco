@@ -33,11 +33,12 @@ mkdir -p "${OUTPUT_DIR}" /scratch/jpbunnel/logs
     --arch resnet50 \
     --mlp \
     --cos \
-    --epochs 800 \
+    --epochs 200 \
     --batch-size 256 \
     --lr 0.03 \
     --moco-dim 128 \
-    --moco-k 4096 \
+    --moco-k 16384 \
+    --crops-per-volume 20 \
     --moco-m 0.999 \
     --moco-t 0.07 \
     --workers 32 \

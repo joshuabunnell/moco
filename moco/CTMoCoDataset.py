@@ -32,9 +32,12 @@ def _to_resnet_format(x):
 
 
 class CTMoCoDataset(Dataset):
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, crops_per_volume=20):
         self.files = glob.glob(os.path.join(data_dir, "**/*.pt"), recursive=True)
-        print(f"Found {len(self.files)} 3D volumes for Pretraining.")
+        self.crops_per_volume = crops_per_volume
+        print(f"Found {len(self.files)} 3D volumes for Pretraining "
+              f"({len(self.files) * crops_per_volume} effective samples "
+              f"with {crops_per_volume} crops/volume).")
 
         # Base Extraction: Get the raw 2.5D chunk
         self.extract_crop = RandSpatialCropd(
@@ -60,11 +63,12 @@ class CTMoCoDataset(Dataset):
         )
 
     def __len__(self):
-        return len(self.files)
+        return len(self.files) * self.crops_per_volume
 
     def __getitem__(self, idx):
-        # Load the saved 3D volume
-        volume = {"image": torch.load(self.files[idx], weights_only=False)}
+        # Map virtual index back to a real volume (different crops sampled randomly)
+        file_idx = idx % len(self.files)
+        volume = {"image": torch.load(self.files[file_idx], weights_only=False)}
 
         # Extract the base crop
         base_crop = self.extract_crop(volume)
