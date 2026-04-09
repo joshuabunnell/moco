@@ -1,3 +1,4 @@
+import copy
 import glob
 import os
 
@@ -73,9 +74,11 @@ class CTMoCoDataset(Dataset):
         # Extract the base crop
         base_crop = self.extract_crop(volume)
 
-        # Branch into Query and Key with independent random augmentations
-        view_q = self.moco_augs(base_crop)["image"]
-        view_k = self.moco_augs(base_crop)["image"]
+        # Deep copy so each view gets independent random augmentations
+        # (MONAI dict transforms mutate in place — without copies, view_k
+        # would be a double-augmented version of view_q, not a separate view)
+        view_q = self.moco_augs(copy.deepcopy(base_crop))["image"]
+        view_k = self.moco_augs(copy.deepcopy(base_crop))["image"]
 
         # Return as a list of two views, plus a dummy target '0'
         return [view_q, view_k], 0
