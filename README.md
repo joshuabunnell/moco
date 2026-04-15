@@ -2,160 +2,163 @@
 
 Self-supervised pretraining on unlabeled CT colonoscopy data using [Momentum Contrast (MoCo) v2](https://arxiv.org/abs/2003.04297), adapted for 3D medical imaging.
 
-The goal is to learn robust visual representations from two unlabeled CT datasets — [ACRIN 6664](https://www.cancerimagingarchive.net/collection/ct-colonography/) and [Pediatric CT-SEG](https://www.cancerimagingarchive.net/collection/pediatric-ct-seg/) — that transfer to downstream tasks such as polyp detection and classification.
+The goal is to learn robust visual representations from two unlabeled CT datasets — [ACRIN 6664](https://www.cancerimagingarchive.net/collection/ct-colonography/) and [Pediatric CT-SEG](https://www.cancerimagingarchive.net/collection/pediatric-ct-seg/) — that transfer to downstream polyp detection and size classification on labeled ACRIN 6664 data.
 
-## Overview
+## Pipeline
 
 ```
-DICOM files
-    │
-    ▼
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  prep_data   │────▶│  .pt tensor  │────▶│   MoCo v2    │────▶│   Pretrained │
-│  (preprocess)│     │    cache     │     │  pretraining  │     │   encoder    │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────┬───────┘
-                                                                      │
-                                                                      ▼
-                                                               ┌──────────────┐
-                                                               │   Linear     │
-                                                               │   probing    │
-                                                               └──────────────┘
+DICOM files → [prep_data.py] → .pt tensors + manifest.csv
+                                     ↓
+XLSX metadata → [convert_metadata.py] → acrin_combined.csv
+                                     ↓
+manifest.csv + acrin_combined.csv → [split_data.py] → labels_{train,val,test}.csv
+                                     ↓
+.pt tensors (unlabeled)   → [main_moco.py]   → pretrained encoder
+.pt tensors + label CSVs  → [main_lincls.py] → polyp classification
 ```
 
-**Pipeline stages:**
+**Stages:**
 
-1. **Preprocessing** — Load DICOM series, reorient to RAS, resample to 1 mm isotropic, apply soft-tissue HU windowing, and cache as `.pt` tensors.
-2. **MoCo v2 Pretraining** — Train a ResNet-50 backbone with momentum contrast on 2.5D crops (224x224x3) extracted from the cached volumes.
-3. **Linear Probing** — Freeze the pretrained backbone and train a linear classifier on labeled data to evaluate representation quality.
-4. **Visualization** *(optional)* — Extract backbone features and project to 2D with UMAP.
+1. **Preprocessing** (`scripts/prep_data.py`) — DICOM series → RAS reorientation → 1 mm isotropic resampling → soft-tissue HU windowing [-150, +250] → cached `.pt` tensors with patient-identifiable filenames and `manifest.csv`.
+2. **Metadata** (`scripts/convert_metadata.py`) — ACRIN 6664 XLSX → clean CSVs mapping patient IDs to polyp size categories.
+3. **Splitting** (`scripts/split_data.py`) — Patient-level stratified train/val/test split joining the manifest with metadata. Outputs `labels_{train,val,test}.csv` for the linear probe.
+4. **MoCo v2 Pretraining** (`main_moco.py`) — ResNet-50 backbone with momentum contrast on 2.5D crops (224x224x3). Multi-GPU DDP required.
+5. **Linear Probing** (`main_lincls.py`) — Freeze pretrained backbone, train a linear head on labeled ACRIN data for 3-class polyp classification (no polyp / 6-9 mm / >=10 mm).
 
 ## Medical Imaging Adaptations
 
-Standard MoCo v2 was designed for natural images (ImageNet). This project adapts it for CT data with several domain-specific constraints:
-
 | Adaptation | Rationale |
 |---|---|
-| **No color jitter** | Hounsfield Unit (HU) values encode physical tissue density — color jitter would destroy this signal |
-| **Soft-tissue HU window [-150, +250]** | Isolates colon wall, mesenteric fat, and polyp tissue; excludes bone (>400 HU) and air (<-500 HU) |
-| **1 mm isotropic resampling** | Normalizes variable slice thickness and in-plane resolution across scanners |
-| **RAS reorientation** | Consistent anatomical coordinate system regardless of scanner manufacturer |
-| **2.5D crops (224x224x3)** | Three adjacent axial slices mapped to RGB channels for compatibility with 2D ResNet architectures |
-| **Medical-safe augmentations only** | Spatial flips, small rotations (≤15°), Gaussian noise/blur — no transforms that alter HU relationships |
+| **No color jitter** | HU values encode physical tissue density — jitter destroys this signal |
+| **Soft-tissue HU window [-150, +250]** | Isolates colon wall, mesenteric fat, polyp tissue; excludes bone and air |
+| **1 mm isotropic resampling** | Normalizes variable slice thickness across scanners |
+| **RAS reorientation** | Consistent anatomical coordinates regardless of scanner manufacturer |
+| **2.5D crops (224x224x3)** | Three adjacent axial slices mapped to RGB channels for 2D ResNet compatibility |
+| **Spatial-only augmentations** | Flips, rotations (<=15 deg), Gaussian noise/blur — nothing that alters HU relationships |
+| **Patient-level splitting** | No patient appears in both train and val — prevents data leakage |
 
 ## Installation
 
-**Option 1: Minimal (pip)**
 ```bash
+# Option 1: pip
 pip install -r requirements.txt
-```
 
-**Option 2: Full reproducible environment (conda)**
-```bash
+# Option 2: conda (full reproducible environment)
 conda env create -f environment.yml
 conda activate moco
 ```
 
 ## Usage
 
-### Step 1: Preprocess DICOM to Tensors
+### Preprocess DICOM to Tensors
 
 ```bash
-# Sequential (single machine)
 python scripts/prep_data.py \
-    --input-dirs /path/to/CT-Colonography /path/to/Pediatric-CT-SEG \
-    --cache-dir /path/to/cached-tensors
+    --input-dirs /data/CT-Colonography /data/Pediatric-CT-SEG \
+    --cache-dir /scratch/cached-tensors
 
-# Or use SLURM array jobs for large datasets (see examples/prep_array.sh)
+# SLURM array mode for large datasets — see examples/prep_array.sh
 ```
 
-### Step 2: MoCo v2 Pretraining
+### Prepare Labels
 
 ```bash
-# Multi-GPU (recommended — DDP is required)
-python main_moco.py /path/to/cached-tensors \
-    --arch resnet50 \
-    --mlp --cos \
-    --epochs 200 \
-    --batch-size 256 \
-    --lr 0.03 \
-    --moco-dim 128 \
-    --moco-k 16384 \
-    --moco-m 0.999 \
-    --moco-t 0.07 \
-    --crops-per-volume 20 \
-    --workers 32 \
-    --multiprocessing-distributed \
-    --world-size 1 --rank 0 \
+# Convert XLSX metadata to CSV (one-time)
+python scripts/convert_metadata.py \
+    --input-dir raw_metadata/ACRIN_6664 \
+    --output-dir csv_metadata
+
+# Generate patient-level train/val/test splits
+python scripts/split_data.py \
+    --manifest /scratch/cached-tensors/CT-Colonography/manifest.csv \
+    --metadata csv_metadata/acrin_combined.csv \
+    --output-dir csv_metadata \
+    --label-scheme three \
+    --val-frac 0.15 --test-frac 0.15 --seed 42
+```
+
+### MoCo v2 Pretraining
+
+```bash
+python main_moco.py /scratch/cached-tensors \
+    --arch resnet50 --mlp --cos \
+    --epochs 200 --batch-size 256 --lr 0.03 \
+    --moco-dim 128 --moco-k 65536 --moco-m 0.999 --moco-t 0.07 \
+    --crops-per-volume 20 --workers 32 \
+    --multiprocessing-distributed --world-size 1 --rank 0 \
     --dist-url "tcp://localhost:10001" \
-    --output-dir /path/to/checkpoints
+    --output-dir /scratch/moco-checkpoints
+
+# Resume from a checkpoint (e.g. to continue on ACRIN-only data):
+python main_moco.py /scratch/cached-tensors/CT-Colonography \
+    --resume /scratch/moco-checkpoints/checkpoint_0199.pth.tar \
+    --epochs 400 \
+    ...  # keep --moco-k the same as the original run
 ```
 
-Training uses `mp.spawn` internally — no `torchrun` required.
+Training uses `mp.spawn` internally — no `torchrun` required. Loss drops rapidly in the first ~50 epochs then plateaus.
 
-**Expected behavior:** Loss drops rapidly in the first ~50 epochs, then plateaus. Persistent oscillation may indicate an augmentation or learning rate issue.
-
-### Step 3: Linear Probing Evaluation
+### Linear Probing
 
 ```bash
-python main_lincls.py /path/to/labeled-data \
-    --arch resnet50 \
-    --pretrained /path/to/checkpoints/checkpoint_0199.pth.tar \
-    --epochs 100 \
-    --lr 30.0
-```
-
-> **Note:** `main_lincls.py` uses ImageNet-style data loading (`torchvision.datasets.ImageFolder` with `train/` and `val/` subdirectories). It serves as a reference template — adaptation for CT downstream tasks will require replacing the data loader and normalization.
-
-### Step 4: UMAP Visualization (Optional)
-
-```bash
-python scripts/visualize_umap.py \
-    --checkpoint /path/to/checkpoints/checkpoint_0199.pth.tar \
-    --data /path/to/cached-tensors \
-    --output umap.png
+python main_lincls.py \
+    --data /scratch/cached-tensors/CT-Colonography \
+    --train-csv csv_metadata/labels_train.csv \
+    --val-csv csv_metadata/labels_val.csv \
+    --pretrained /scratch/moco-checkpoints/checkpoint_0199.pth.tar \
+    --num-classes 3 \
+    --epochs 100 --lr 30.0 --batch-size 256 \
+    --output-dir /scratch/lincls-checkpoints
 ```
 
 ## HPC / SLURM
 
-Example SLURM job scripts are provided in [`examples/`](examples/):
+Example job scripts in [`examples/`](examples/):
 
 | Script | Purpose | Resources |
 |---|---|---|
-| `prep_array.sh` | Two-phase DICOM preprocessing (discover + array jobs) | 2-4 CPUs, 4-16 GB per task |
-| `train_moco.sh` | MoCo pretraining | 32 CPUs, 128 GB, 2x A100 GPUs |
-| `run_umap.sh` | UMAP visualization | 4 CPUs, 32 GB, 1x A100 GPU |
+| `prep_array.sh` | Two-phase DICOM preprocessing (discover + array) | 2-4 CPUs, 4-16 GB per task |
+| `train_moco.sh` | MoCo pretraining from scratch | 32 CPUs, 128 GB, 2x A100 |
+| `resume_moco.sh` | Continue pretraining from a checkpoint | 32 CPUs, 128 GB, 2x A100 |
+| `run_lincls.sh` | Linear probing evaluation | 16 CPUs, 64 GB, 1x A100 |
+| `run_umap.sh` | UMAP feature extraction | 4 CPUs, 32 GB, 1x A100 |
 
-Edit the configuration block at the top of each script to set paths for your environment.
+Edit the configuration block at the top of each script for your environment.
 
 ## Repository Structure
 
 ```
-moco/
-├── main_moco.py              # MoCo v2 pretraining entry point (DDP)
-├── main_lincls.py             # Linear probing evaluation (template)
+├── main_moco.py                          # MoCo v2 pretraining (DDP, multi-GPU)
+├── main_lincls.py                        # Linear probing on labeled ACRIN data
 ├── moco/
-│   ├── __init__.py            # Shared utilities (to_resnet_format)
-│   ├── builder.py             # MoCo v2 model (dual encoders, queue, momentum)
-│   └── ct_dataset.py          # CT volume dataset with contrastive augmentations
+│   ├── __init__.py                       # Shared utils (to_resnet_format)
+│   ├── builder.py                        # MoCo model (dual encoders, queue, InfoNCE)
+│   └── ct_dataset.py                     # CTMoCoDataset (contrastive) + CTLinClsDataset (labeled)
 ├── scripts/
-│   ├── prep_data.py           # DICOM → .pt tensor preprocessing
-│   └── visualize_umap.py      # UMAP feature visualization
+│   ├── prep_data.py                      # DICOM → .pt preprocessing + manifest
+│   ├── convert_metadata.py               # ACRIN XLSX → CSV metadata
+│   ├── split_data.py                     # Patient-level stratified train/val/test splits
+│   ├── reorganize_cache.py               # One-time migration: MD5 filenames → patient IDs
+│   └── visualize_umap.py                 # UMAP projection of backbone features
 ├── examples/
-│   ├── train_moco.sh          # SLURM job: pretraining
-│   ├── prep_array.sh          # SLURM job: preprocessing array
-│   └── run_umap.sh            # SLURM job: UMAP visualization
+│   ├── train_moco.sh                     # SLURM: pretraining from scratch
+│   ├── resume_moco.sh                    # SLURM: continue pretraining from checkpoint
+│   ├── run_lincls.sh                     # SLURM: linear probing evaluation
+│   ├── prep_array.sh                     # SLURM: preprocessing array jobs
+│   └── run_umap.sh                       # SLURM: UMAP visualization
+├── metadata/
+│   ├── raw_metadata/                     # ACRIN 6664 XLSX files (no-polyp, 6-9mm, >=10mm)
+│   └── csv_metadata/                     # Processed CSVs + split label files
 ├── notebooks/
-│   ├── data_information.ipynb # Dataset characterization
-│   ├── data_transforms.ipynb  # Transform pipeline validation
-│   └── tensor_prepare.ipynb   # Preprocessing architecture demo
-├── requirements.txt           # Minimal pip dependencies
-├── environment.yml            # Full conda environment
-└── LICENSE                    # MIT
+│   ├── data_information.ipynb            # Dataset characterization
+│   ├── data_transforms.ipynb             # Transform pipeline validation
+│   └── tensor_prepare.ipynb              # Preprocessing architecture demo
+├── requirements.txt
+├── environment.yml
+└── LICENSE
 ```
 
 ## Citation
-
-If you use this code, please cite the original MoCo papers:
 
 ```bibtex
 @inproceedings{he2020momentum,
@@ -175,13 +178,4 @@ If you use this code, please cite the original MoCo papers:
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
-
-Original MoCo implementation by Meta Platforms, Inc. Adapted for CT colonoscopy self-supervised pretraining.
-
-## Acknowledgments
-
-- [Meta AI Research](https://github.com/facebookresearch/moco) — Original MoCo v2 implementation
-- [MONAI](https://monai.io/) — Medical image transforms and data loading
-- [ACRIN 6664](https://www.cancerimagingarchive.net/collection/ct-colonography/) — CT Colonography dataset
-- [Pediatric CT-SEG](https://www.cancerimagingarchive.net/collection/pediatric-ct-seg/) — Pediatric CT dataset
+[MIT License](LICENSE). Original MoCo implementation by Meta Platforms, Inc. Adapted for CT colonoscopy self-supervised pretraining.
