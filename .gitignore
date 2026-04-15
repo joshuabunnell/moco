@@ -137,3 +137,4 @@ dmypy.json
 outputs/
 *.pth.tar
 *.pt
+.claude
