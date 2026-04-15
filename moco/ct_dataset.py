@@ -115,3 +115,80 @@ class CTMoCoDataset(Dataset):
         view_k = self.moco_augs(copy.deepcopy(base_crop))["image"]
 
         return [view_q, view_k], 0
+
+
+class CTLinClsDataset(Dataset):
+    """PyTorch Dataset that yields labeled 2.5D crops from cached CT volumes.
+
+    Reads a CSV file mapping ``.pt`` filenames to integer class labels, loads
+    the corresponding volume, extracts a random 2.5D crop, and applies mild
+    augmentations (train) or deterministic center-padding (val).
+
+    The CSV must have columns ``filename`` (basename of the ``.pt`` file) and
+    ``label`` (integer class index).  Patient-level splitting is handled
+    externally by providing separate CSVs for train and val.
+
+    Args:
+        data_dir: Directory containing preprocessed ``.pt`` tensor files.
+        labels_csv: Path to a CSV with ``filename`` and ``label`` columns.
+        crops_per_volume: Number of random crops per volume per epoch.
+        is_train: If True, apply spatial augmentations; if False, only pad/crop.
+    """
+
+    def __init__(self, data_dir, labels_csv, crops_per_volume=5, is_train=True):
+        import csv
+
+        self.data_dir = data_dir
+        self.crops_per_volume = crops_per_volume
+        self.entries = []  # list of (filepath, label)
+
+        with open(labels_csv) as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                fpath = os.path.join(data_dir, row["filename"])
+                if os.path.exists(fpath):
+                    self.entries.append((fpath, int(row["label"])))
+
+        print(f"Found {len(self.entries)} labeled volumes "
+              f"({len(self.entries) * crops_per_volume} effective samples, "
+              f"{'train' if is_train else 'val'})")
+
+        self.extract_crop = RandSpatialCropd(
+            keys=["image"], roi_size=(224, 224, 3), random_size=False
+        )
+        self.pad_crop = ResizeWithPadOrCropd(
+            keys=["image"], spatial_size=(224, 224, 3)
+        )
+
+        if is_train:
+            self.transform = Compose([
+                self.extract_crop,
+                self.pad_crop,
+                # Mild spatial augmentations — same philosophy as pretraining
+                # but lighter since the linear head trains quickly
+                RandFlipd(keys=["image"], prob=0.5, spatial_axis=0),
+                RandFlipd(keys=["image"], prob=0.5, spatial_axis=1),
+                RandFlipd(keys=["image"], prob=0.5, spatial_axis=2),
+                Lambdad(keys=["image"], func=to_resnet_format),
+            ])
+        else:
+            self.transform = Compose([
+                self.extract_crop,
+                self.pad_crop,
+                Lambdad(keys=["image"], func=to_resnet_format),
+            ])
+
+    def __len__(self):
+        return len(self.entries) * self.crops_per_volume
+
+    def __getitem__(self, idx):
+        """Load a volume and return an augmented crop with its label.
+
+        Returns:
+            Tuple of (image, label) where image is a (3, 224, 224) tensor.
+        """
+        file_idx = idx % len(self.entries)
+        fpath, label = self.entries[file_idx]
+        volume = {"image": torch.load(fpath, weights_only=False)}
+        crop = self.transform(volume)["image"]
+        return crop, label
