@@ -15,6 +15,11 @@ Usage:
 import argparse
 import glob
 import os
+import sys
+
+# Ensure the project root is on the path so `from moco import ...` works
+# regardless of the working directory when invoking this script.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import matplotlib.pyplot as plt
 import numpy as np
