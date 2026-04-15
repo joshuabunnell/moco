@@ -151,14 +151,19 @@ def main():
     dir_to_idx = {d: i for i, d in enumerate(unique_dirs)}
     colors = [dir_to_idx[dir_names[label]] for label in labels]
 
+    # High-contrast palette — first two are red vs teal for clear separation
+    palette = ["#E63946", "#2A9D8F", "#E9C46A", "#264653", "#F4A261",
+               "#6A4C93", "#1982C4", "#8AC926", "#FF595E", "#FFCA3A"]
+    color_list = [palette[c % len(palette)] for c in colors]
+
     plt.figure(figsize=(12, 8))
     scatter = plt.scatter(
         embedding[:, 0], embedding[:, 1],
-        c=colors, cmap="tab10", s=5, alpha=0.7
+        c=color_list, s=5, alpha=0.7
     )
     if len(unique_dirs) <= 10:
         handles = [plt.Line2D([0], [0], marker="o", color="w",
-                              markerfacecolor=plt.cm.tab10(i / max(len(unique_dirs) - 1, 1)),
+                              markerfacecolor=palette[i % len(palette)],
                               markersize=8, label=d)
                    for i, d in enumerate(unique_dirs)]
         plt.legend(handles=handles, title="Source")
