@@ -1,12 +1,4 @@
 #!/bin/bash
-set -e
-
-# ===== EDIT THESE FOR YOUR ENVIRONMENT =====
-PROJECT_DIR="/home/jpbunnel/moco"
-DATA_DIR="/scratch/jpbunnel/cached-tensors"
-CONDA_ENV="moco_env"
-# ============================================
-
 # Discovery phase resource limits (array tasks get their own via the sbatch call below)
 #SBATCH -N 1
 #SBATCH -c 2
@@ -18,6 +10,14 @@ CONDA_ENV="moco_env"
 #SBATCH -e slurm.discover.%j.err
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=%u@asu.edu
+
+# ===== EDIT THESE FOR YOUR ENVIRONMENT =====
+PROJECT_DIR="/home/jpbunnel/moco"
+DATA_DIR="/scratch/jpbunnel/cached-tensors"
+CONDA_ENV="moco_env"
+# ============================================
+
+set -e
 
 module load mamba/latest
 source activate "${CONDA_ENV}"

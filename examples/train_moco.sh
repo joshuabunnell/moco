@@ -1,13 +1,4 @@
 #!/bin/bash
-
-# ===== EDIT THESE FOR YOUR ENVIRONMENT =====
-PROJECT_DIR="/home/jpbunnel/moco"
-DATA_DIR="/scratch/jpbunnel/cached-tensors"
-OUTPUT_DIR="/scratch/jpbunnel/moco-checkpoints"
-LOG_DIR="/scratch/jpbunnel/logs"
-CONDA_ENV="moco_env"
-# ============================================
-
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH -c 32
@@ -20,6 +11,14 @@ CONDA_ENV="moco_env"
 #SBATCH -e %x.%j.err
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=%u@asu.edu
+
+# ===== EDIT THESE FOR YOUR ENVIRONMENT =====
+PROJECT_DIR="/home/jpbunnel/moco"
+DATA_DIR="/scratch/jpbunnel/cached-tensors"
+OUTPUT_DIR="/scratch/jpbunnel/moco-checkpoints"
+LOG_DIR="/scratch/jpbunnel/logs"
+CONDA_ENV="moco_env"
+# ============================================
 
 set -e
 
