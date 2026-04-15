@@ -1,4 +1,13 @@
 #!/bin/bash
+
+# ===== EDIT THESE FOR YOUR ENVIRONMENT =====
+PROJECT_DIR="/home/jpbunnel/moco"
+DATA_DIR="/scratch/jpbunnel/cached-tensors"
+OUTPUT_DIR="/scratch/jpbunnel/moco-checkpoints"
+LOG_DIR="/scratch/jpbunnel/logs"
+CONDA_ENV="moco_env"
+# ============================================
+
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH -c 32
@@ -7,29 +16,25 @@
 #SBATCH -t 3-00:00:00
 #SBATCH -p public
 #SBATCH -q public
-#SBATCH -o /scratch/jpbunnel/logs/moco-train.%j.out
-#SBATCH -e /scratch/jpbunnel/logs/moco-train.%j.err
+#SBATCH -o %x.%j.out
+#SBATCH -e %x.%j.err
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=%u@asu.edu
 
 set -e
 
 module load mamba/latest
-source activate moco_env
+source activate "${CONDA_ENV}"
 
-PYTHON=/home/jpbunnel/.conda/envs/moco_env/bin/python
 export PYTHONUNBUFFERED=1
 MASTER_PORT=$((10000 + RANDOM % 50000))
 
-cd /home/jpbunnel/moco/
-
-DATA_DIR="/scratch/jpbunnel/cached-tensors"
-OUTPUT_DIR="/scratch/jpbunnel/moco-checkpoints"
-mkdir -p "${OUTPUT_DIR}" /scratch/jpbunnel/logs
+cd "${PROJECT_DIR}"
+mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}"
 
 # main_moco.py uses mp.spawn internally to launch one process per GPU.
 # No torchrun needed — just pass --multiprocessing-distributed.
-"${PYTHON}" main_moco.py "${DATA_DIR}" \
+python main_moco.py "${DATA_DIR}" \
     --arch resnet50 \
     --mlp \
     --cos \

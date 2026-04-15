@@ -1,3 +1,27 @@
+"""Preprocess DICOM CT series into cached .pt tensors for MoCo training.
+
+Walks one or more input directories containing DICOM series, applies medical
+image transforms (reorientation, resampling, windowing), and saves each
+processed volume as a PyTorch tensor.  Supports two execution modes:
+
+Sequential (single machine):
+    python scripts/prep_data.py \\
+        --input-dirs /data/CT-Colonography /data/Pediatric-CT-SEG \\
+        --cache-dir /scratch/cached-tensors
+
+SLURM array jobs (HPC):
+    # Phase 1 — discover series and write manifest (login node, no DICOM I/O)
+    python scripts/prep_data.py --discover \\
+        --input-dirs /data/CT-Colonography /data/Pediatric-CT-SEG \\
+        --cache-dir /scratch/cached-tensors \\
+        --manifest /scratch/cached-tensors/series_manifest.txt
+
+    # Phase 2 — process one series per array task
+    python scripts/prep_data.py \\
+        --process-index $SLURM_ARRAY_TASK_ID \\
+        --manifest /scratch/cached-tensors/series_manifest.txt
+"""
+
 import argparse
 import hashlib
 import os
@@ -13,24 +37,26 @@ from monai.transforms.spatial.dictionary import Orientationd, Spacingd
 from monai.transforms.utility.dictionary import EnsureChannelFirstd
 
 # ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-INPUT_DIRS = [
-    "/scratch/jpbunnel/downloads/manifest/CT COLONOGRAPHY",
-    "/scratch/jpbunnel/downloads/manifest/Pediatric-CT-SEG",
-]
-CACHE_DIR = "/scratch/jpbunnel/cached-tensors/"
-MIN_SLICES = 10
-
-# ---------------------------------------------------------------------------
-# Transforms
+# Transforms — the static preprocessing pipeline applied to every volume
 # ---------------------------------------------------------------------------
 TRANSFORMS = Compose(
     [
         LoadImaged(keys=["image"], reader="PydicomReader", image_only=False),
         EnsureChannelFirstd(keys=["image"], channel_dim="no_channel"),
+
+        # Reorient to Right-Anterior-Superior (RAS) axes so that all volumes
+        # share a consistent anatomical coordinate system regardless of how
+        # the original scanner encoded orientation.
         Orientationd(keys=["image"], axcodes="RAS", labels=None),
+
+        # Resample to 1 mm isotropic voxels.  CT scanners vary in slice
+        # thickness (commonly 1-3 mm) and in-plane resolution; resampling
+        # normalizes these differences so the model sees uniform geometry.
         Spacingd(keys=["image"], pixdim=(1.0, 1.0, 1.0), mode="bilinear"),
+
+        # Soft-tissue HU window: [-150, +250] isolates colon wall, mesenteric
+        # fat, and polyp tissue while excluding bone (>400 HU) and air
+        # (<-500 HU).  Values are rescaled to [0, 1] for network input.
         ScaleIntensityRanged(
             keys=["image"],
             a_min=-150,
@@ -42,12 +68,23 @@ TRANSFORMS = Compose(
     ]
 )
 
+# Default minimum slices to consider a directory a valid DICOM series
+DEFAULT_MIN_SLICES = 10
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 def find_series_dirs(root, min_slices):
-    """Return directories containing at least min_slices .dcm files."""
+    """Walk a directory tree and return paths containing enough DICOM files.
+
+    Args:
+        root: Top-level directory to search.
+        min_slices: Minimum number of .dcm files for a directory to qualify.
+
+    Returns:
+        List of ``Path`` objects pointing to valid series directories.
+    """
     series = []
     for dirpath, _dirs, files in os.walk(
         root
@@ -66,6 +103,13 @@ def find_series_dirs(root, min_slices):
 # Main
 # ---------------------------------------------------------------------------
 def preprocess(input_dir, cache_dir, min_slices):
+    """Process all series in *input_dir* sequentially and cache as .pt files.
+
+    Args:
+        input_dir: Directory containing DICOM series subdirectories.
+        cache_dir: Output directory for cached .pt tensors.
+        min_slices: Minimum DICOM slices to consider a valid series.
+    """
     os.makedirs(cache_dir, exist_ok=True)
 
     series = find_series_dirs(input_dir, min_slices)
@@ -117,10 +161,16 @@ def _dataset_cache_dir(input_dir, cache_dir):
 
 
 def discover(input_dirs, cache_dir, min_slices, manifest_path):
-    """
-    Phase 1: walk all input dirs, write every valid series path to a manifest file.
-    Each line is tab-separated: <output_dir>\\t<series_path>
+    """Phase 1: walk input dirs and write every valid series path to a manifest.
+
+    Each line is tab-separated: ``<output_dir>\\t<series_path>``.
     No DICOM I/O occurs here — safe to run on a login node.
+
+    Args:
+        input_dirs: List of top-level directories to scan for DICOM series.
+        cache_dir: Root output directory for cached tensors.
+        min_slices: Minimum DICOM slices per series.
+        manifest_path: File path to write the series manifest.
     """
     os.makedirs(cache_dir, exist_ok=True)
     total = 0
@@ -134,14 +184,18 @@ def discover(input_dirs, cache_dir, min_slices, manifest_path):
             total += len(found)
     print("Wrote %d total series to %s" % (total, manifest_path))
     if total:
-        print("Submit with: sbatch --array=0-%d scripts/prep_array.sh" % (total - 1))
+        print("Submit with: sbatch --array=0-%d examples/prep_array.sh" % (total - 1))
 
 
 def process_one(index, manifest_path):
-    """
-    Phase 2: process the single series at position `index` in the manifest.
-    Called by each SLURM array task via SLURM_ARRAY_TASK_ID — no shared memory,
-    no semaphores, each task is fully independent.
+    """Phase 2: process the single series at position *index* in the manifest.
+
+    Called by each SLURM array task via ``SLURM_ARRAY_TASK_ID``.  Each task is
+    fully independent — no shared memory or inter-task communication.
+
+    Args:
+        index: Zero-based position in the manifest file.
+        manifest_path: Path to the manifest written by :func:`discover`.
     """
     with open(manifest_path) as f:
         lines = [line.strip() for line in f if line.strip()]
@@ -177,6 +231,25 @@ def process_one(index, manifest_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CT colonoscopy DICOM preprocessing")
     parser.add_argument(
+        "--input-dirs",
+        nargs="+",
+        default=None,
+        metavar="DIR",
+        help="One or more directories containing DICOM series to preprocess",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        metavar="DIR",
+        help="Output directory for cached .pt tensors",
+    )
+    parser.add_argument(
+        "--min-slices",
+        type=int,
+        default=DEFAULT_MIN_SLICES,
+        help="Minimum DICOM slices per series (default: %d)" % DEFAULT_MIN_SLICES,
+    )
+    parser.add_argument(
         "--discover",
         action="store_true",
         help="Phase 1: walk input dirs and write series manifest (no DICOM I/O)",
@@ -190,18 +263,30 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--manifest",
-        default=os.path.join(CACHE_DIR, "series_manifest.txt"),
-        help="Path to the series manifest file",
+        default=None,
+        help="Path to the series manifest file (default: <cache-dir>/series_manifest.txt)",
     )
     args = parser.parse_args()
 
+    # Derive manifest default from cache-dir if both are provided
+    if args.manifest is None and args.cache_dir is not None:
+        args.manifest = os.path.join(args.cache_dir, "series_manifest.txt")
+
     if args.discover:
-        discover(INPUT_DIRS, CACHE_DIR, MIN_SLICES, args.manifest)
+        if not args.input_dirs or not args.cache_dir:
+            parser.error("--discover requires --input-dirs and --cache-dir")
+        if args.manifest is None:
+            parser.error("--discover requires --cache-dir or --manifest")
+        discover(args.input_dirs, args.cache_dir, args.min_slices, args.manifest)
     elif args.process_index is not None:
+        if args.manifest is None:
+            parser.error("--process-index requires --manifest (or --cache-dir)")
         process_one(args.process_index, args.manifest)
     else:
-        # Backward-compatible sequential mode
+        # Sequential mode
+        if not args.input_dirs or not args.cache_dir:
+            parser.error("Sequential mode requires --input-dirs and --cache-dir")
         print("Starting preprocessing (sequential)")
-        for d in INPUT_DIRS:
-            preprocess(d, _dataset_cache_dir(d, CACHE_DIR), MIN_SLICES)
+        for d in args.input_dirs:
+            preprocess(d, _dataset_cache_dir(d, args.cache_dir), args.min_slices)
         print("All done.")

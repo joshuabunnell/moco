@@ -129,6 +129,11 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# IDE / OS
 /.github/copilot-instructions.md
-CLAUDE.md
 .DS_Store
+
+# Project artifacts
+outputs/
+*.pth.tar
+*.pt

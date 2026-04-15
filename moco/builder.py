@@ -1,3 +1,18 @@
+"""MoCo v2 model architecture: dual encoders, momentum update, and negative queue.
+
+Implements Momentum Contrast (MoCo) v2 with a query encoder trained via
+back-propagation and a key encoder updated via exponential moving average
+(momentum).  A large queue of negative keys is maintained across mini-batches
+to provide a rich set of negatives for the InfoNCE contrastive loss.
+
+Reference:
+    He et al., "Momentum Contrast for Unsupervised Visual Representation Learning"
+    https://arxiv.org/abs/1911.05722
+
+    Chen et al., "Improved Baselines with Momentum Contrastive Learning"
+    https://arxiv.org/abs/2003.04297
+"""
+
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
 # This source code is licensed under the MIT license found in the
@@ -64,6 +79,7 @@ class MoCo(nn.Module):
 
     @torch.no_grad()
     def _dequeue_and_enqueue(self, keys):
+        """Replace the oldest entries in the FIFO queue with new key features."""
         # gather keys before updating queue
         keys = concat_all_gather(keys)
 

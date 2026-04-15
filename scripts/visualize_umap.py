@@ -1,11 +1,14 @@
 #!/usr/bin/env python
-"""
-Extract 2048-dim features from a pretrained MoCo checkpoint and visualize with UMAP.
+"""Extract 2048-dim backbone features from a MoCo checkpoint and visualize with UMAP.
+
+Loads a pretrained MoCo v2 checkpoint, strips the MLP projection head to expose
+the 2048-dimensional ResNet-50 feature space, extracts one or more crops per
+cached CT volume, then projects features to 2D with UMAP for visualization.
 
 Usage:
     python scripts/visualize_umap.py \
-        --checkpoint /scratch/jpbunnel/moco-checkpoints/checkpoint_0199.pth.tar \
-        --data /scratch/jpbunnel/cached-tensors \
+        --checkpoint /path/to/checkpoint_0199.pth.tar \
+        --data /path/to/cached-tensors \
         --output umap.png
 """
 
@@ -21,19 +24,29 @@ import torchvision.models as models
 import umap
 from monai.transforms.croppad.dictionary import RandSpatialCropd, ResizeWithPadOrCropd
 
-# MONAI MetaTensor safe globals (same as CTMoCoDataset)
+from moco import to_resnet_format
+
+# MONAI MetaTensor safe globals (same registration as ct_dataset.py)
 from monai.data.meta_tensor import MetaTensor
 import torch.serialization
 
 torch.serialization.add_safe_globals([np.ndarray, np.dtype, MetaTensor])
 
 
-def _to_resnet_format(x):
-    return x[0].permute(2, 0, 1)
-
-
 def build_encoder(checkpoint_path):
-    """Load the query encoder from a MoCo checkpoint, removing the MLP head."""
+    """Load the query encoder from a MoCo checkpoint with the projection head removed.
+
+    Reconstructs the MLP projection head used during training, loads the
+    ``encoder_q`` weights from the checkpoint, then replaces the projection
+    head with ``nn.Identity()`` so that the encoder outputs 2048-dim backbone
+    features instead of 128-dim projected embeddings.
+
+    Args:
+        checkpoint_path: Path to a MoCo ``.pth.tar`` checkpoint file.
+
+    Returns:
+        A ResNet-50 encoder in eval mode that outputs 2048-dim feature vectors.
+    """
     # Build the same architecture used during training
     encoder = models.resnet50(num_classes=128)
     dim_mlp = encoder.fc.weight.shape[1]  # 2048
@@ -51,14 +64,29 @@ def build_encoder(checkpoint_path):
 
     encoder.load_state_dict(encoder_state)
 
-    # Replace MLP projection head with identity to get 2048-dim features
+    # Strip the MLP projection head to expose the 2048-dim backbone features.
+    # During MoCo training the projection head maps 2048 -> 128 for contrastive
+    # loss, but downstream tasks benefit from the richer 2048-dim representation.
     encoder.fc = nn.Identity()
     encoder.eval()
     return encoder
 
 
 def extract_features(encoder, data_dir, crops_per_volume=1, device="cuda"):
-    """Extract one feature vector per volume (or multiple crops per volume)."""
+    """Extract feature vectors from cached CT volumes using the encoder backbone.
+
+    Args:
+        encoder: A ResNet-50 model (with projection head removed) in eval mode.
+        data_dir: Root directory containing preprocessed ``.pt`` tensor files.
+        crops_per_volume: Number of random 2.5D crops per volume.  Using 1 is
+            typically sufficient for UMAP; higher values increase density.
+        device: Torch device string (``"cuda"`` or ``"cpu"``).
+
+    Returns:
+        Tuple of (features, labels, files) where *features* is an (N, 2048)
+        numpy array, *labels* maps each feature to its source file index, and
+        *files* is the list of ``.pt`` file paths.
+    """
     files = sorted(glob.glob(os.path.join(data_dir, "**/*.pt"), recursive=True))
     print(f"Extracting features from {len(files)} volumes "
           f"({crops_per_volume} crop(s) each)...")
@@ -80,8 +108,7 @@ def extract_features(encoder, data_dir, crops_per_volume=1, device="cuda"):
             for _ in range(crops_per_volume):
                 crop = crop_transform(volume)
                 crop = pad_crop(crop)
-                # Convert to ResNet format: (1, 224, 224, 3) -> (3, 224, 224)
-                img = _to_resnet_format(crop["image"]).unsqueeze(0).to(device)
+                img = to_resnet_format(crop["image"]).unsqueeze(0).to(device)
                 feat = encoder(img).squeeze().cpu().numpy()
                 all_features.append(feat)
                 all_labels.append(i)

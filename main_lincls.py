@@ -1,4 +1,22 @@
 #!/usr/bin/env python
+"""Linear probing evaluation for MoCo pretrained encoders.
+
+Freezes all layers of a pretrained ResNet-50 backbone and trains only a
+linear classification head (fc layer) on a labeled downstream dataset.
+This measures the quality of learned representations without fine-tuning
+the backbone weights.
+
+This script is largely unmodified from Meta's original MoCo implementation
+and uses ImageNet-style data loading (``torchvision.datasets.ImageFolder``
+with ``train/`` and ``val/`` subdirectories).  It serves as a reference
+template — adaptation for CT-specific downstream tasks (e.g., polyp
+classification) will require replacing the data loading and normalization
+with CT-appropriate equivalents.
+
+Based on the MoCo reference implementation by Meta AI Research:
+    https://github.com/facebookresearch/moco
+"""
+
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
 # This source code is licensed under the MIT license found in the
@@ -158,6 +176,7 @@ best_acc1 = 0
 
 
 def main():
+    """Parse arguments and launch training workers (one per GPU)."""
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -197,6 +216,7 @@ def main():
 
 
 def main_worker(gpu, ngpus_per_node, args):
+    """Initialize DDP, load pretrained weights, and run linear evaluation."""
     global best_acc1
     args.gpu = gpu
 
@@ -471,6 +491,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
 
 def validate(val_loader, model, criterion, args):
+    """Evaluate the model on the validation set and return top-1 accuracy."""
     batch_time = AverageMeter("Time", ":6.3f")
     losses = AverageMeter("Loss", ":.4e")
     top1 = AverageMeter("Acc@1", ":6.2f")

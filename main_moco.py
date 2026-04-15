@@ -1,4 +1,18 @@
 #!/usr/bin/env python
+"""MoCo v2 self-supervised pretraining on cached CT volume tensors.
+
+Entry point for contrastive pretraining using Momentum Contrast (MoCo v2).
+Loads preprocessed .pt tensors via ``CTMoCoDataset``, trains a ResNet-50
+backbone with a momentum-updated key encoder and a negative-sample queue,
+and saves periodic checkpoints.
+
+Supports multi-GPU training via PyTorch DistributedDataParallel (DDP).
+Single-GPU and DataParallel modes are intentionally disabled because the
+queue update and batch-shuffle operations require DDP.
+
+Based on the MoCo v2 reference implementation by Meta AI Research:
+    https://github.com/facebookresearch/moco
+"""
 
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
@@ -26,7 +40,7 @@ import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.models as models
 import moco.builder as builder
-from moco.CTMoCoDataset import CTMoCoDataset
+from moco.ct_dataset import CTMoCoDataset
 
 model_names = sorted(
     name
@@ -183,6 +197,7 @@ parser.add_argument(
 
 
 def main():
+    """Parse arguments and launch training workers (one per GPU)."""
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -224,6 +239,7 @@ def main():
 
 
 def main_worker(gpu, ngpus_per_node, args):
+    """Initialize DDP, build the MoCo model, and run the training loop."""
     args.gpu = gpu
 
     # suppress printing if not master
@@ -371,6 +387,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
+    """Run one epoch of MoCo contrastive training."""
     batch_time = AverageMeter("Time", ":6.3f")
     data_time = AverageMeter("Data", ":6.3f")
     losses = AverageMeter("Loss", ":.4e")
