@@ -14,9 +14,9 @@
 
 # ===== EDIT THESE FOR YOUR ENVIRONMENT =====
 PROJECT_DIR="/home/jpbunnel/moco"
-DATA_DIR="/scratch/jpbunnel/cached-tensors/CT COLONOGRAPHY"  # ACRIN only
-RESUME_DIR="/scratch/jpbunnel/moco-checkpoints"              # where the base checkpoint lives
-OUTPUT_DIR="/scratch/jpbunnel/moco-checkpoints-acrin"        # new checkpoints written here
+DATA_DIR="/scratch/jpbunnel/cached-tensors/Pediatric-CT-SEG"  # pediatric only
+RESUME_DIR="/scratch/jpbunnel/moco-checkpoints"               # where the base checkpoint lives
+OUTPUT_DIR="/scratch/jpbunnel/moco-checkpoints-pediatric"     # new checkpoints written here
 LOG_DIR="/scratch/jpbunnel/logs"
 CONDA_ENV="moco_env"
 
