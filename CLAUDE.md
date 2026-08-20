@@ -33,6 +33,9 @@ Code and data are deliberately decoupled and mirror each other by name:
 - **Data** (disposable, regenerable): `/scratch/$USER/moco`
 
 ```
+/home/$USER/moco/
+└── tools/          NBIA retriever RPM (git-ignored; extracted here on first download)
+
 /scratch/$USER/moco/
 ├── raw/            raw DICOM from TCIA (NBIA output) + metadata.csv
 │   ├── CT COLONOGRAPHY/     (TCIA's name — keeps the space)
@@ -42,9 +45,15 @@ Code and data are deliberately decoupled and mirror each other by name:
 │   └── Pediatric-CT-SEG/
 ├── checkpoints/    base/ (200ep) · acrin/ · pediatric/ · lincls/
 ├── umap/           UMAP output plots
-├── logs/           job logs
-└── tools/          NBIA retriever RPM, JDK, manifest.tcia
+└── logs/           job logs
 ```
+
+`tools/` moved to the durable side on 2026-08-20 — it's a build dependency (retriever
+jar), not disposable data, and nothing reads it often enough to dodge the scratch
+purge on its own. That's exactly how a hand-extracted JDK previously kept here
+silently rotted (its `lib/` got purged, breaking `tcia_download.sh` with no
+warning until the next real download attempt); Java now comes from `module load
+openjdk-17.0.3_7-gcc-12.1.0` instead and isn't kept as a local copy at all.
 
 **All these paths are defined once in `jobs/config.sh`** and derived from `$USER`.
 Job scripts source it; nothing else should hardcode a scratch path. Naming rule:

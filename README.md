@@ -165,6 +165,7 @@ Job scripts live in [`jobs/`](jobs/). Paths are centralized in `jobs/config.sh`
 │   ├── manifest.tcia                     # TCIA download spec (pins the exact data)
 │   ├── raw_metadata/                     # ACRIN 6664 XLSX files (no-polyp, 6-9mm, >=10mm)
 │   └── csv_metadata/                     # Processed CSVs + split label files
+├── tools/                                # NBIA retriever RPM (git-ignored; extracted here on first download)
 ├── notebooks/                            # Dataset characterization + transform validation
 ├── requirements.txt
 ├── environment.yml                       # conda env "moco_env"

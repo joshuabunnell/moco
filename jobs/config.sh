@@ -16,6 +16,12 @@
 : "${CSV_DIR:=$PROJECT_DIR/metadata/csv_metadata}"
 : "${MANIFEST_TCIA:=$PROJECT_DIR/metadata/manifest.tcia}"  # TCIA download spec (durable copy)
 : "${CONDA_ENV:=moco_env}"
+# NBIA retriever RPM + extracted app live here too (durable, not scratch) — it's
+# a tool dependency, not disposable data, and nothing reads it often enough to
+# dodge the 90-day scratch purge on its own (this is exactly how the old
+# hand-extracted JDK silently rotted; Java itself now comes from `module load`
+# instead, so it isn't kept here at all).
+: "${TOOLS_DIR:=$PROJECT_DIR/tools}"
 
 # --- data (disposable, in /scratch, regenerable from TCIA) ---
 : "${DATA_ROOT:=/scratch/$USER/moco}"
@@ -24,7 +30,6 @@
 : "${CKPT_ROOT:=$DATA_ROOT/checkpoints}" # base/ acrin/ pediatric/
 : "${UMAP_DIR:=$DATA_ROOT/umap}"
 : "${LOG_DIR:=$DATA_ROOT/logs}"
-: "${TOOLS_DIR:=$DATA_ROOT/tools}"      # NBIA retriever RPM + extracted JDK
 
 # --- per-dataset subdirs (raw keeps TCIA's spaces; tensors normalize to hyphens) ---
 : "${RAW_ACRIN:=$RAW_DIR/CT COLONOGRAPHY}"          # TCIA keeps the space in this name

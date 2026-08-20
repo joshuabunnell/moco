@@ -143,3 +143,7 @@ outputs/
 *.pth.tar
 *.pt
 .claude
+
+# NBIA retriever RPM + extracted app (downloaded/extracted by jobs/tcia_download.sh,
+# not meant to be committed — see jobs/config.sh TOOLS_DIR)
+/tools/
