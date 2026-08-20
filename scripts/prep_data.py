@@ -6,20 +6,22 @@ processed volume as a PyTorch tensor.  Supports two execution modes:
 
 Sequential (single machine):
     python scripts/prep_data.py \\
-        --input-dirs /data/CT-Colonography /data/Pediatric-CT-SEG \\
-        --cache-dir /scratch/cached-tensors
+        --input-dirs "/scratch/$USER/moco/raw/CT COLONOGRAPHY" \\
+            /scratch/$USER/moco/raw/Pediatric-CT-SEG \\
+        --cache-dir /scratch/$USER/moco/tensors
 
-SLURM array jobs (HPC):
+SLURM array jobs (HPC) — normally run via jobs/prep_array.sh:
     # Phase 1 — discover series and write manifest (login node, no DICOM I/O)
     python scripts/prep_data.py --discover \\
-        --input-dirs /data/CT-Colonography /data/Pediatric-CT-SEG \\
-        --cache-dir /scratch/cached-tensors \\
-        --manifest /scratch/cached-tensors/series_manifest.txt
+        --input-dirs "/scratch/$USER/moco/raw/CT COLONOGRAPHY" \\
+            /scratch/$USER/moco/raw/Pediatric-CT-SEG \\
+        --cache-dir /scratch/$USER/moco/tensors \\
+        --manifest /scratch/$USER/moco/tensors/series_manifest.txt
 
     # Phase 2 — process one series per array task
     python scripts/prep_data.py \\
         --process-index $SLURM_ARRAY_TASK_ID \\
-        --manifest /scratch/cached-tensors/series_manifest.txt
+        --manifest /scratch/$USER/moco/tensors/series_manifest.txt
 """
 
 import argparse
@@ -226,9 +228,20 @@ def preprocess(input_dir, cache_dir, min_slices):
 # ---------------------------------------------------------------------------
 # SLURM job array support
 # ---------------------------------------------------------------------------
+def _sanitize_name(name):
+    """Make a directory name shell-safe: collapse whitespace runs to a hyphen.
+
+    TCIA collection folders can contain spaces (e.g. ``CT COLONOGRAPHY``), which
+    break shell globs and force quoting everywhere downstream.  Normalising here
+    means the cache layout is deterministic and space-free regardless of what
+    the source download folder is named.
+    """
+    return re.sub(r"\s+", "-", name.strip())
+
+
 def _dataset_cache_dir(input_dir, cache_dir):
     """Derive a per-dataset output subdir from the input directory's basename."""
-    return os.path.join(cache_dir, os.path.basename(input_dir.rstrip("/")))
+    return os.path.join(cache_dir, _sanitize_name(os.path.basename(input_dir.rstrip("/"))))
 
 
 def discover(input_dirs, cache_dir, min_slices, manifest_path):
@@ -258,7 +271,7 @@ def discover(input_dirs, cache_dir, min_slices, manifest_path):
             total += len(found)
     print("Wrote %d total series to %s" % (total, manifest_path))
     if total:
-        print("Submit with: sbatch --array=0-%d examples/prep_array.sh" % (total - 1))
+        print("Submit with: sbatch --array=0-%d jobs/prep_array.sh" % (total - 1))
 
 
 def process_one(index, manifest_path):

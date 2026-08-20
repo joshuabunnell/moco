@@ -12,19 +12,16 @@
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=%u@asu.edu
 
-# ===== EDIT THESE FOR YOUR ENVIRONMENT =====
-PROJECT_DIR="/home/jpbunnel/moco"
-DATA_DIR="/scratch/jpbunnel/cached-tensors/CT-Colonography"
-CHECKPOINT_DIR="/scratch/jpbunnel/moco-checkpoints"
-OUTPUT_DIR="/scratch/jpbunnel/lincls-checkpoints"
-CSV_DIR="${PROJECT_DIR}/metadata/csv_metadata"
-CONDA_ENV="moco_env"
-
-# Which pretrained checkpoint to evaluate
-CKPT="${CKPT:-checkpoint_0199}"
-# ============================================
-
+# Linear probe: freeze a pretrained backbone, train a 3-class polyp head on
+# labeled ACRIN data. Paths come from jobs/config.sh.
 set -e
+PROJECT_DIR="${PROJECT_DIR:-$HOME/moco}"
+source "${PROJECT_DIR}/jobs/config.sh"
+
+# Which pretrained checkpoint to evaluate, and which run it came from.
+# Override: sbatch --export=CKPT=checkpoint_0149,CKPT_RUN=acrin jobs/run_lincls.sh
+CKPT="${CKPT:-checkpoint_0199}"
+CKPT_RUN="${CKPT_RUN:-base}"
 
 module load mamba/latest
 source activate "${CONDA_ENV}"
@@ -33,13 +30,13 @@ export PYTHONUNBUFFERED=1
 MASTER_PORT=$((10000 + RANDOM % 50000))
 
 cd "${PROJECT_DIR}"
-mkdir -p "${OUTPUT_DIR}"
+mkdir -p "${CKPT_ROOT}/lincls"
 
 python main_lincls.py \
-    --data "${DATA_DIR}" \
+    --data "${TENSOR_ACRIN}" \
     --train-csv "${CSV_DIR}/labels_train.csv" \
     --val-csv "${CSV_DIR}/labels_val.csv" \
-    --pretrained "${CHECKPOINT_DIR}/${CKPT}.pth.tar" \
+    --pretrained "${CKPT_ROOT}/${CKPT_RUN}/${CKPT}.pth.tar" \
     --num-classes 3 \
     --arch resnet50 \
     --epochs 100 \
@@ -52,5 +49,5 @@ python main_lincls.py \
     --world-size 1 \
     --rank 0 \
     --dist-url "tcp://localhost:${MASTER_PORT}" \
-    --output-dir "${OUTPUT_DIR}" \
+    --output-dir "${CKPT_ROOT}/lincls" \
     --print-freq 5

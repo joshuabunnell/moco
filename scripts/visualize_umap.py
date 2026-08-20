@@ -8,7 +8,7 @@ cached CT volume, then projects features to 2D with UMAP for visualization.
 Usage:
     python scripts/visualize_umap.py \
         --checkpoint /path/to/checkpoint_0199.pth.tar \
-        --data /path/to/cached-tensors \
+        --data /path/to/tensors \
         --output umap.png
 """
 

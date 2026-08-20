@@ -83,6 +83,11 @@ docs/_build/latex/target/*.ilg
 docs/_build/latex/target/*.tex
 docs/_build/latex/target/*.pdf
 
+# SLURM job logs (job-id-suffixed, written to the CWD jobs are submitted from).
+# Covers both naming schemes: slurm.<name>.<id>.{out,err} and <jobname>.<id>.{out,err}.
+*.[0-9]*.out
+*.[0-9]*.err
+
 # PyBuilder
 target/
 

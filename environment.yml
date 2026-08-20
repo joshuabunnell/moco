@@ -1,4 +1,4 @@
-name: moco
+name: moco_env
 channels:
   - defaults
   - conda-forge

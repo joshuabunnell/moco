@@ -12,7 +12,7 @@ are provided via CSV files with ``filename`` and ``label`` columns.
 
 Usage:
     python main_lincls.py \
-        --data /path/to/cached-tensors \
+        --data /path/to/tensors/CT-COLONOGRAPHY \
         --train-csv labels_train.csv --val-csv labels_val.csv \
         --pretrained /path/to/checkpoint_0199.pth.tar \
         --num-classes 3 --epochs 100

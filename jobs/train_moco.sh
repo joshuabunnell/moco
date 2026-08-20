@@ -12,15 +12,11 @@
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=%u@asu.edu
 
-# ===== EDIT THESE FOR YOUR ENVIRONMENT =====
-PROJECT_DIR="/home/jpbunnel/moco"
-DATA_DIR="/scratch/jpbunnel/cached-tensors"
-OUTPUT_DIR="/scratch/jpbunnel/moco-checkpoints"
-LOG_DIR="/scratch/jpbunnel/logs"
-CONDA_ENV="moco_env"
-# ============================================
-
+# MoCo v2 pretraining from scratch on the full (ACRIN + Pediatric) tensor cache.
+# Paths come from jobs/config.sh — no per-user editing needed on Sol.
 set -e
+PROJECT_DIR="${PROJECT_DIR:-$HOME/moco}"
+source "${PROJECT_DIR}/jobs/config.sh"
 
 module load mamba/latest
 source activate "${CONDA_ENV}"
@@ -29,11 +25,11 @@ export PYTHONUNBUFFERED=1
 MASTER_PORT=$((10000 + RANDOM % 50000))
 
 cd "${PROJECT_DIR}"
-mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}"
+mkdir -p "${CKPT_ROOT}/base" "${LOG_DIR}"
 
 # main_moco.py uses mp.spawn internally to launch one process per GPU.
 # No torchrun needed — just pass --multiprocessing-distributed.
-python main_moco.py "${DATA_DIR}" \
+python main_moco.py "${TENSOR_DIR}" \
     --arch resnet50 \
     --mlp \
     --cos \
@@ -51,5 +47,5 @@ python main_moco.py "${DATA_DIR}" \
     --world-size 1 \
     --rank 0 \
     --dist-url "tcp://localhost:${MASTER_PORT}" \
-    --output-dir "${OUTPUT_DIR}" \
+    --output-dir "${CKPT_ROOT}/base" \
     --print-freq 5

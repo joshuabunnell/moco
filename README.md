@@ -37,6 +37,29 @@ manifest.csv + acrin_combined.csv → [split_data.py] → labels_{train,val,test
 | **Spatial-only augmentations** | Flips, rotations (<=15 deg), Gaussian noise/blur — nothing that alters HU relationships |
 | **Patient-level splitting** | No patient appears in both train and val — prevents data leakage |
 
+## Data
+
+Two public collections from [The Cancer Imaging Archive (TCIA)](https://www.cancerimagingarchive.net/):
+
+| Collection | Role | Subjects | Series (manifest) | Cached tensors |
+|---|---|---|---|---|
+| [CT COLONOGRAPHY (ACRIN 6664)](https://www.cancerimagingarchive.net/collection/ct-colonography/) | pretraining + labeled downstream | 825 | 3,446 | 1,720 |
+| [Pediatric-CT-SEG](https://www.cancerimagingarchive.net/collection/pediatric-ct-seg/) | pretraining only (unlabeled) | 359 | 715 | 354 |
+
+Cached-tensor counts are lower than series counts because `prep_data.py` drops
+series with fewer than 10 slices. Downstream **labels** come from the ACRIN 6664
+polyp-size spreadsheets in [`metadata/raw_metadata/`](metadata/raw_metadata/)
+(no-polyp / 6–9 mm / ≥10 mm), converted to the CSVs in `metadata/csv_metadata/`.
+
+The exact download set is pinned by [`metadata/manifest.tcia`](metadata/manifest.tcia)
+(committed here so it survives a `/scratch` purge). TCIA data is de-identified and
+publicly available under each collection's license — cite the collections if you use them.
+
+> **On Sol, data lives in `/scratch/$USER/moco/` and is treated as a disposable
+> cache** (the filesystem purges files unread for 90 days). It is fully
+> reproducible from TCIA — see [Reproducing the data](#reproducing-the-data).
+> The code (`/home/$USER/moco`) is the durable, version-controlled half.
+
 ## Installation
 
 ```bash
@@ -44,86 +67,75 @@ manifest.csv + acrin_combined.csv → [split_data.py] → labels_{train,val,test
 pip install -r requirements.txt
 
 # Option 2: conda (full reproducible environment)
-conda env create -f environment.yml
-conda activate moco
+conda env create -f environment.yml   # creates env "moco_env"
+conda activate moco_env
 ```
+
+> On ASU Sol: `module load mamba/latest && source activate moco_env`. All job
+> scripts do this for you. See [`CLAUDE.md`](CLAUDE.md) for canonical paths and
+> conventions.
+
+## Reproducing the data
+
+If `/scratch` is wiped (or you are a new student starting fresh), rebuild the
+entire dataset from TCIA. Everything is parameterized by `$USER` via
+[`jobs/config.sh`](jobs/config.sh), so these run unchanged for anyone in the group:
+
+```bash
+# 1. Download raw DICOM from TCIA (uses metadata/manifest.tcia + NBIA retriever).
+#    Installs the retriever from its RPM on first run. ~75 GB, several hours.
+sbatch jobs/tcia_download.sh          # → /scratch/$USER/moco/raw/
+
+# 2. Preprocess DICOM → .pt tensors (discover, then a SLURM array over series).
+sbatch jobs/prep_array.sh             # → /scratch/$USER/moco/tensors/
+
+# 3. Build labels: XLSX → CSV, then patient-level train/val/test split.
+python scripts/convert_metadata.py \
+    --input-dir metadata/raw_metadata --output-dir metadata/csv_metadata
+python scripts/split_data.py \
+    --manifest /scratch/$USER/moco/tensors/CT-COLONOGRAPHY/manifest.csv \
+    --metadata metadata/csv_metadata/acrin_combined.csv \
+    --output-dir metadata/csv_metadata \
+    --label-scheme three --val-frac 0.15 --test-frac 0.15 --seed 42
+```
+
+The one-time NBIA retriever setup (JDK + RPM extraction) is handled inside
+`jobs/tcia_download.sh`; see its comments if the retriever's jar path differs for
+a newer version. The `metadata/csv_metadata/` label CSVs are also committed, so
+step 3 only needs re-running if the cache is rebuilt.
 
 ## Usage
 
-### Preprocess DICOM to Tensors
+All jobs are submitted from the repo and pull their paths from `jobs/config.sh` —
+no editing per user or per run:
 
 ```bash
-python scripts/prep_data.py \
-    --input-dirs /data/CT-Colonography /data/Pediatric-CT-SEG \
-    --cache-dir /scratch/cached-tensors
-
-# SLURM array mode for large datasets — see examples/prep_array.sh
+sbatch jobs/train_moco.sh                                  # pretrain from scratch
+sbatch jobs/resume_moco.sh                                 # continue on ACRIN (DATASET=pediatric for the other)
+sbatch --export=CKPT=checkpoint_0199 jobs/run_lincls.sh    # linear probe a checkpoint
+sbatch --export=CKPT_RUN=acrin,CKPT=checkpoint_0249 jobs/run_umap.sh   # UMAP a checkpoint
 ```
 
-### Prepare Labels
-
-```bash
-# Convert XLSX metadata to CSV (one-time)
-python scripts/convert_metadata.py \
-    --input-dir raw_metadata/ACRIN_6664 \
-    --output-dir csv_metadata
-
-# Generate patient-level train/val/test splits
-python scripts/split_data.py \
-    --manifest /scratch/cached-tensors/CT-Colonography/manifest.csv \
-    --metadata csv_metadata/acrin_combined.csv \
-    --output-dir csv_metadata \
-    --label-scheme three \
-    --val-frac 0.15 --test-frac 0.15 --seed 42
-```
-
-### MoCo v2 Pretraining
-
-```bash
-python main_moco.py /scratch/cached-tensors \
-    --arch resnet50 --mlp --cos \
-    --epochs 200 --batch-size 256 --lr 0.03 \
-    --moco-dim 128 --moco-k 65536 --moco-m 0.999 --moco-t 0.07 \
-    --crops-per-volume 20 --workers 32 \
-    --multiprocessing-distributed --world-size 1 --rank 0 \
-    --dist-url "tcp://localhost:10001" \
-    --output-dir /scratch/moco-checkpoints
-
-# Resume from a checkpoint (e.g. to continue on ACRIN-only data):
-python main_moco.py /scratch/cached-tensors/CT-Colonography \
-    --resume /scratch/moco-checkpoints/checkpoint_0199.pth.tar \
-    --epochs 400 \
-    ...  # keep --moco-k the same as the original run
-```
-
-Training uses `mp.spawn` internally — no `torchrun` required. Loss drops rapidly in the first ~50 epochs then plateaus.
-
-### Linear Probing
-
-```bash
-python main_lincls.py \
-    --data /scratch/cached-tensors/CT-Colonography \
-    --train-csv csv_metadata/labels_train.csv \
-    --val-csv csv_metadata/labels_val.csv \
-    --pretrained /scratch/moco-checkpoints/checkpoint_0199.pth.tar \
-    --num-classes 3 \
-    --epochs 100 --lr 30.0 --batch-size 256 \
-    --output-dir /scratch/lincls-checkpoints
-```
+Training uses `mp.spawn` internally — no `torchrun` required. Loss drops rapidly
+in the first ~50 epochs then plateaus. To run a stage by hand instead of via
+SLURM, read the corresponding job script — it shows the exact `python` invocation.
 
 ## HPC / SLURM
 
-Example job scripts in [`examples/`](examples/):
+Job scripts live in [`jobs/`](jobs/). Paths are centralized in `jobs/config.sh`
+(derived from `$USER`), so a new student on Sol runs them unchanged.
 
 | Script | Purpose | Resources |
 |---|---|---|
-| `prep_array.sh` | Two-phase DICOM preprocessing (discover + array) | 2-4 CPUs, 4-16 GB per task |
-| `train_moco.sh` | MoCo pretraining from scratch | 32 CPUs, 128 GB, 2x A100 |
-| `resume_moco.sh` | Continue pretraining from a checkpoint | 32 CPUs, 128 GB, 2x A100 |
-| `run_lincls.sh` | Linear probing evaluation | 16 CPUs, 64 GB, 1x A100 |
-| `run_umap.sh` | UMAP feature extraction | 4 CPUs, 32 GB, 1x A100 |
-
-Edit the configuration block at the top of each script for your environment.
+| `config.sh` | Shared path/env definitions sourced by every job | — |
+| `tcia_download.sh` | Download raw DICOM from TCIA (NBIA retriever) | 1 CPU, 8 GB |
+| `dicom_organize.sh` | *Optional* tidy symlinked DICOM view (needs `dicom-organizer`) | 8 CPUs |
+| `prep_array.sh` | Two-phase DICOM preprocessing (discover + array) | 2–4 CPUs, 4–16 GB/task |
+| `train_moco.sh` | MoCo pretraining from scratch | 32 CPUs, 128 GB, 2× A100 |
+| `resume_moco.sh` | Continue pretraining on one collection (`--export=DATASET=acrin\|pediatric`) | 32 CPUs, 128 GB, 2× A100 |
+| `run_lincls.sh` | Linear probing evaluation | 16 CPUs, 64 GB, 1× A100 |
+| `run_umap.sh` | UMAP feature extraction | 4 CPUs, 32 GB, 1× A100 |
+| `refresh_scratch.sh` | Touch at-risk `/scratch` paths to dodge the 90-day purge | 2 CPUs, 2 GB, `lightwork` |
 
 ## Repository Structure
 
@@ -138,25 +150,30 @@ Edit the configuration block at the top of each script for your environment.
 │   ├── prep_data.py                      # DICOM → .pt preprocessing + manifest
 │   ├── convert_metadata.py               # ACRIN XLSX → CSV metadata
 │   ├── split_data.py                     # Patient-level stratified train/val/test splits
-│   ├── reorganize_cache.py               # One-time migration: MD5 filenames → patient IDs
 │   └── visualize_umap.py                 # UMAP projection of backbone features
-├── examples/
-│   ├── train_moco.sh                     # SLURM: pretraining from scratch
-│   ├── resume_moco.sh                    # SLURM: continue pretraining from checkpoint
-│   ├── run_lincls.sh                     # SLURM: linear probing evaluation
-│   ├── prep_array.sh                     # SLURM: preprocessing array jobs
-│   └── run_umap.sh                       # SLURM: UMAP visualization
+├── jobs/                                 # SLURM job scripts — the job source of truth
+│   ├── config.sh                         # Canonical $USER-derived paths (sourced by all)
+│   ├── tcia_download.sh                  # Download raw DICOM from TCIA
+│   ├── dicom_organize.sh                 # (optional) symlinked DICOM view
+│   ├── prep_array.sh                     # Preprocessing discover + array
+│   ├── train_moco.sh                     # Pretraining from scratch
+│   ├── resume_moco.sh                    # Continue pretraining (DATASET=acrin|pediatric)
+│   ├── run_lincls.sh                     # Linear probing
+│   ├── run_umap.sh                       # UMAP visualization
+│   └── refresh_scratch.sh                # Dodge the 90-day /scratch purge
 ├── metadata/
+│   ├── manifest.tcia                     # TCIA download spec (pins the exact data)
 │   ├── raw_metadata/                     # ACRIN 6664 XLSX files (no-polyp, 6-9mm, >=10mm)
 │   └── csv_metadata/                     # Processed CSVs + split label files
-├── notebooks/
-│   ├── data_information.ipynb            # Dataset characterization
-│   ├── data_transforms.ipynb             # Transform pipeline validation
-│   └── tensor_prepare.ipynb              # Preprocessing architecture demo
+├── notebooks/                            # Dataset characterization + transform validation
 ├── requirements.txt
-├── environment.yml
+├── environment.yml                       # conda env "moco_env"
+├── CLAUDE.md                             # operational notes (paths, env, conventions)
 └── LICENSE
 ```
+
+> ASU Sol documentation is kept as a local snapshot at `~/sol-docs/` (outside this
+> repo — it is environment reference, not project code). Start from `~/sol-docs/INDEX.md`.
 
 ## Citation
 

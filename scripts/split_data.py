@@ -15,7 +15,7 @@ Class labels (configurable via ``--label-scheme``):
 
 Usage:
     python scripts/split_data.py \
-        --manifest /scratch/cached-tensors/CT-Colonography/manifest.csv \
+        --manifest /scratch/$USER/moco/tensors/CT-COLONOGRAPHY/manifest.csv \
         --metadata csv_metadata/acrin_combined.csv \
         --output-dir csv_metadata \
         --label-scheme three \
