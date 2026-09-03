@@ -19,9 +19,9 @@ manifest.csv + acrin_combined.csv → [split_data.py] → labels_{train,val,test
 
 **Stages:**
 
-1. **Preprocessing** (`scripts/prep_data.py`) — DICOM series → RAS reorientation → 1 mm isotropic resampling → soft-tissue HU windowing [-150, +250] → cached `.pt` tensors with patient-identifiable filenames and `manifest.csv`.
-2. **Metadata** (`scripts/convert_metadata.py`) — ACRIN 6664 XLSX → clean CSVs mapping patient IDs to polyp size categories.
-3. **Splitting** (`scripts/split_data.py`) — Patient-level stratified train/val/test split joining the manifest with metadata. Outputs `labels_{train,val,test}.csv` for the linear probe.
+1. **Preprocessing** (`scripts/data/prep_data.py`) — DICOM series → RAS reorientation → 1 mm isotropic resampling → soft-tissue HU windowing [-150, +250] → cached `.pt` tensors with patient-identifiable filenames and `manifest.csv`.
+2. **Metadata** (`scripts/data/convert_metadata.py`) — ACRIN 6664 XLSX → clean CSVs mapping patient IDs to polyp size categories.
+3. **Splitting** (`scripts/data/split_data.py`) — Patient-level stratified train/val/test split joining the manifest with metadata. Outputs `labels_{train,val,test}.csv` for the linear probe.
 4. **MoCo v2 Pretraining** (`main_moco.py`) — ResNet-50 backbone with momentum contrast on 2.5D crops (224x224x3). Multi-GPU DDP required.
 5. **Linear Probing** (`main_lincls.py`) — Freeze pretrained backbone, train a linear head on labeled ACRIN data for 3-class polyp classification (no polyp / 6-9 mm / >=10 mm).
 
@@ -41,13 +41,15 @@ manifest.csv + acrin_combined.csv → [split_data.py] → labels_{train,val,test
 
 Two public collections from [The Cancer Imaging Archive (TCIA)](https://www.cancerimagingarchive.net/):
 
-| Collection | Role | Subjects | Series (manifest) | Cached tensors |
+| Collection | Role | Subjects | Series (downloaded) | Cached tensors |
 |---|---|---|---|---|
-| [CT COLONOGRAPHY (ACRIN 6664)](https://www.cancerimagingarchive.net/collection/ct-colonography/) | pretraining + labeled downstream | 825 | 3,446 | 1,720 |
-| [Pediatric-CT-SEG](https://www.cancerimagingarchive.net/collection/pediatric-ct-seg/) | pretraining only (unlabeled) | 359 | 715 | 354 |
+| [CT COLONOGRAPHY (ACRIN 6664)](https://www.cancerimagingarchive.net/collection/ct-colonography/) | pretraining + labeled downstream | 825 | 3,451 | 1,720 |
+| [Pediatric-CT-SEG](https://www.cancerimagingarchive.net/collection/pediatric-ct-seg/) | pretraining only (unlabeled) | 359 | 718 | 354 |
 
 Cached-tensor counts are lower than series counts because `prep_data.py` drops
-series with fewer than 10 slices. Downstream **labels** come from the ACRIN 6664
+series with fewer than 10 slices. For Pediatric-CT-SEG about half the catalogued
+series are single-file RTSTRUCT organ segmentations rather than CT, so they fall
+out at the same threshold; those annotations are currently unused. Downstream **labels** come from the ACRIN 6664
 polyp-size spreadsheets in [`metadata/raw_metadata/`](metadata/raw_metadata/)
 (no-polyp / 6–9 mm / ≥10 mm), converted to the CSVs in `metadata/csv_metadata/`.
 
@@ -71,9 +73,9 @@ conda env create -f environment.yml   # creates env "moco_env"
 conda activate moco_env
 ```
 
-> On ASU Sol: `module load mamba/latest && source activate moco_env`. All job
-> scripts do this for you. See [`CLAUDE.md`](CLAUDE.md) for canonical paths and
-> conventions.
+> On ASU Sol: `module load mamba/latest && source activate moco_env`. Job scripts
+> that run Python do this for you. See [`CLAUDE.md`](CLAUDE.md) for canonical
+> paths and conventions.
 
 ## Reproducing the data
 
@@ -83,25 +85,26 @@ entire dataset from TCIA. Everything is parameterized by `$USER` via
 
 ```bash
 # 1. Download raw DICOM from TCIA (uses metadata/manifest.tcia + NBIA retriever).
-#    Installs the retriever from its RPM on first run. ~75 GB, several hours.
+#    Installs the retriever from its RPM on first run. ~549 GB, many hours.
+#    Resumable: it diffs the manifest against what is on disk, so rerun to continue.
 sbatch jobs/tcia_download.sh          # → /scratch/$USER/moco/raw/
 
 # 2. Preprocess DICOM → .pt tensors (discover, then a SLURM array over series).
 sbatch jobs/prep_array.sh             # → /scratch/$USER/moco/tensors/
 
 # 3. Build labels: XLSX → CSV, then patient-level train/val/test split.
-python scripts/convert_metadata.py \
+python scripts/data/convert_metadata.py \
     --input-dir metadata/raw_metadata --output-dir metadata/csv_metadata
-python scripts/split_data.py \
+python scripts/data/split_data.py \
     --manifest /scratch/$USER/moco/tensors/CT-COLONOGRAPHY/manifest.csv \
     --metadata metadata/csv_metadata/acrin_combined.csv \
     --output-dir metadata/csv_metadata \
     --label-scheme three --val-frac 0.15 --test-frac 0.15 --seed 42
 ```
 
-The one-time NBIA retriever setup (JDK + RPM extraction) is handled inside
-`jobs/tcia_download.sh`; see its comments if the retriever's jar path differs for
-a newer version. The `metadata/csv_metadata/` label CSVs are also committed, so
+The one-time NBIA retriever RPM extraction is handled inside `jobs/tcia_download.sh`
+(Java comes from Sol's `module load`, not a bundled copy); see its comments if the
+retriever's jar path differs for a newer version. The `metadata/csv_metadata/` label CSVs are also committed, so
 step 3 only needs re-running if the cache is rebuilt.
 
 ## Usage
@@ -110,8 +113,10 @@ All jobs are submitted from the repo and pull their paths from `jobs/config.sh` 
 no editing per user or per run:
 
 ```bash
-sbatch jobs/train_moco.sh                                  # pretrain from scratch
+sbatch jobs/train_moco.sh                                  # pretrain from scratch (DATASET=acrin by default)
 sbatch jobs/resume_moco.sh                                 # continue on ACRIN (DATASET=pediatric for the other)
+sbatch jobs/build_crop_bank.sh                             # fixed evaluation crop bank (run once)
+sbatch jobs/eval_repr.sh                                   # score random / imagenet / moco on that bank
 sbatch --export=CKPT=checkpoint_0199 jobs/run_lincls.sh    # linear probe a checkpoint
 sbatch --export=CKPT_RUN=acrin,CKPT=checkpoint_0249 jobs/run_umap.sh   # UMAP a checkpoint
 ```
@@ -131,11 +136,13 @@ Job scripts live in [`jobs/`](jobs/). Paths are centralized in `jobs/config.sh`
 | `tcia_download.sh` | Download raw DICOM from TCIA (NBIA retriever) | 1 CPU, 8 GB |
 | `dicom_organize.sh` | *Optional* tidy symlinked DICOM view (needs `dicom-organizer`) | 8 CPUs |
 | `prep_array.sh` | Two-phase DICOM preprocessing (discover + array) | 2–4 CPUs, 4–16 GB/task |
-| `train_moco.sh` | MoCo pretraining from scratch | 32 CPUs, 128 GB, 2× A100 |
+| `train_moco.sh` | MoCo pretraining from scratch (`--export=DATASET=acrin\|base\|pediatric`) | 32 CPUs, 128 GB, 2× A100 |
 | `resume_moco.sh` | Continue pretraining on one collection (`--export=DATASET=acrin\|pediatric`) | 32 CPUs, 128 GB, 2× A100 |
+| `build_crop_bank.sh` | Fixed uint8 evaluation crop bank from the tensor cache | 16 CPUs, 64 GB, `htc` |
+| `eval_repr.sh` | Frozen-encoder metric battery over the crop bank | 8 CPUs, 32 GB, 1× A100 MIG |
 | `run_lincls.sh` | Linear probing evaluation | 16 CPUs, 64 GB, 1× A100 |
 | `run_umap.sh` | UMAP feature extraction | 4 CPUs, 32 GB, 1× A100 |
-| `refresh_scratch.sh` | Touch at-risk `/scratch` paths to dodge the 90-day purge | 2 CPUs, 2 GB, `lightwork` |
+| `refresh_scratch.sh` | Touch the whole scratch tree (plus any RC-flagged path) to dodge the 90-day purge | 2 CPUs, 2 GB, `lightwork` |
 
 ## Repository Structure
 
@@ -147,10 +154,15 @@ Job scripts live in [`jobs/`](jobs/). Paths are centralized in `jobs/config.sh`
 │   ├── builder.py                        # MoCo model (dual encoders, queue, InfoNCE)
 │   └── ct_dataset.py                     # CTMoCoDataset (contrastive) + CTLinClsDataset (labeled)
 ├── scripts/
-│   ├── prep_data.py                      # DICOM → .pt preprocessing + manifest
-│   ├── convert_metadata.py               # ACRIN XLSX → CSV metadata
-│   ├── split_data.py                     # Patient-level stratified train/val/test splits
-│   └── visualize_umap.py                 # UMAP projection of backbone features
+│   ├── pending_series.py                 # Diff manifest.tcia against disk → resumable download list
+│   ├── data/
+│   │   ├── prep_data.py                  # DICOM → .pt preprocessing + manifest
+│   │   ├── convert_metadata.py           # ACRIN XLSX → CSV metadata
+│   │   └── split_data.py                 # Patient-level stratified train/val/test splits
+│   └── eval/
+│       ├── build_crop_bank.py            # Deterministic uint8 crop bank for encoder comparison
+│       ├── eval_repr.py                  # Frozen-encoder metric battery → JSON report
+│       └── visualize_umap.py             # UMAP projection of backbone features
 ├── jobs/                                 # SLURM job scripts — the job source of truth
 │   ├── config.sh                         # Canonical $USER-derived paths (sourced by all)
 │   ├── tcia_download.sh                  # Download raw DICOM from TCIA
@@ -158,11 +170,14 @@ Job scripts live in [`jobs/`](jobs/). Paths are centralized in `jobs/config.sh`
 │   ├── prep_array.sh                     # Preprocessing discover + array
 │   ├── train_moco.sh                     # Pretraining from scratch
 │   ├── resume_moco.sh                    # Continue pretraining (DATASET=acrin|pediatric)
+│   ├── build_crop_bank.sh                # Build the evaluation crop bank
+│   ├── eval_repr.sh                      # Score encoders on the crop bank
 │   ├── run_lincls.sh                     # Linear probing
 │   ├── run_umap.sh                       # UMAP visualization
 │   └── refresh_scratch.sh                # Dodge the 90-day /scratch purge
 ├── metadata/
 │   ├── manifest.tcia                     # TCIA download spec (pins the exact data)
+│   ├── series_catalog.csv                # Per-series paths, sizes, scanner, supine/prone
 │   ├── raw_metadata/                     # ACRIN 6664 XLSX files (no-polyp, 6-9mm, >=10mm)
 │   └── csv_metadata/                     # Processed CSVs + split label files
 ├── tools/                                # NBIA retriever RPM (git-ignored; extracted here on first download)
