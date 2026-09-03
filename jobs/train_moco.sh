@@ -14,13 +14,15 @@
 #SBATCH --mail-user=%u@asu.edu
 
 # MoCo v2 pretraining from scratch. DATASET picks the tensor pool and the
-# checkpoint subdir under CKPT_ROOT: base = both collections (ACRIN + Pediatric),
-# acrin/pediatric = one collection. Override: sbatch --export=DATASET=acrin jobs/train_moco.sh
+# checkpoint subdir under CKPT_ROOT: acrin (default, the primary track) = CT
+# COLONOGRAPHY only; base = both collections, kept only as the "does out-of-domain
+# data help" ablation; pediatric = Pediatric-CT-SEG alone, which is out-of-domain
+# for the polyp task. Override: sbatch --export=DATASET=base jobs/train_moco.sh
 set -e
 PROJECT_DIR="${PROJECT_DIR:-$HOME/moco}"
 source "${PROJECT_DIR}/jobs/config.sh"
 
-DATASET="${DATASET:-base}"
+DATASET="${DATASET:-acrin}"
 case "${DATASET}" in
     base)      DATA_DIR="${TENSOR_DIR}" ;;
     acrin)     DATA_DIR="${TENSOR_ACRIN}" ;;
