@@ -6,18 +6,12 @@
 #SBATCH -t 0-02:00:00
 #SBATCH -p lightwork
 #SBATCH -q public
-#SBATCH -o slurm.refresh_scratch.%j.out
-#SBATCH -e slurm.refresh_scratch.%j.err
+#SBATCH -o /scratch/%u/moco/logs/%x.%j.out
+#SBATCH -e /scratch/%u/moco/logs/%x.%j.err
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=%u@asu.edu
 
-# RC purges /scratch directories not accessed in 90 days and drops the
-# at-risk list into $HOME as scratch-dirs-{inactive,pending-removal}.csv.
-# This reads those CSVs and touches every path in our own $SCRATCH tree so
-# they register as active again. Never touches another user's directory,
-# even if one shows up in the report (e.g. a shared-lab destination we
-# copied data to).
-
+# RC drops at-risk /scratch paths into $HOME as scratch-dirs-{inactive,pending-removal}.csv; this touches every path in our own $SCRATCH tree so they register as active again.
 set -uo pipefail
 
 CSV_FILES=(

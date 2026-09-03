@@ -7,13 +7,13 @@
 #SBATCH -t 0-00:30:00
 #SBATCH -p public
 #SBATCH -q public
-#SBATCH -o %x.%j.out
-#SBATCH -e %x.%j.err
+#SBATCH -J umap
+#SBATCH -o /scratch/%u/moco/logs/%x.%j.out
+#SBATCH -e /scratch/%u/moco/logs/%x.%j.err
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=%u@asu.edu
 
 # UMAP projection of backbone features from a pretrained checkpoint.
-# Paths come from jobs/config.sh.
 set -e
 PROJECT_DIR="${PROJECT_DIR:-$HOME/moco}"
 source "${PROJECT_DIR}/jobs/config.sh"
@@ -26,8 +26,7 @@ export PYTHONUNBUFFERED=1
 cd "${PROJECT_DIR}"
 mkdir -p "${UMAP_DIR}"
 
-# Default to the base run's final checkpoint. Override:
-#   sbatch --export=CKPT=checkpoint_0099,CKPT_RUN=acrin jobs/run_umap.sh
+# Override: sbatch --export=CKPT=checkpoint_0099,CKPT_RUN=acrin jobs/run_umap.sh
 CKPT="${CKPT:-checkpoint_0199}"
 CKPT_RUN="${CKPT_RUN:-base}"
 

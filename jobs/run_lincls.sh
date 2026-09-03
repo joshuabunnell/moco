@@ -7,18 +7,17 @@
 #SBATCH -t 0-06:00:00
 #SBATCH -p public
 #SBATCH -q public
-#SBATCH -o %x.%j.out
-#SBATCH -e %x.%j.err
+#SBATCH -J lincls
+#SBATCH -o /scratch/%u/moco/logs/%x.%j.out
+#SBATCH -e /scratch/%u/moco/logs/%x.%j.err
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=%u@asu.edu
 
-# Linear probe: freeze a pretrained backbone, train a 3-class polyp head on
-# labeled ACRIN data. Paths come from jobs/config.sh.
+# Linear probe: freeze a pretrained backbone, train a 3-class polyp head on labeled ACRIN data.
 set -e
 PROJECT_DIR="${PROJECT_DIR:-$HOME/moco}"
 source "${PROJECT_DIR}/jobs/config.sh"
 
-# Which pretrained checkpoint to evaluate, and which run it came from.
 # Override: sbatch --export=CKPT=checkpoint_0149,CKPT_RUN=acrin jobs/run_lincls.sh
 CKPT="${CKPT:-checkpoint_0199}"
 CKPT_RUN="${CKPT_RUN:-base}"

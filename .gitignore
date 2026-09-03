@@ -83,8 +83,9 @@ docs/_build/latex/target/*.ilg
 docs/_build/latex/target/*.tex
 docs/_build/latex/target/*.pdf
 
-# SLURM job logs (job-id-suffixed, written to the CWD jobs are submitted from).
-# Covers both naming schemes: slurm.<name>.<id>.{out,err} and <jobname>.<id>.{out,err}.
+# SLURM job logs. Jobs in jobs/ now write these to $LOG_DIR (/scratch/$USER/moco/logs),
+# not the repo — these patterns are a safety net for stray logs from a manual sbatch
+# or an -o/-e override. Matches <jobname>.<id>.{out,err} and .<A>_<a>. array logs.
 *.[0-9]*.out
 *.[0-9]*.err
 
