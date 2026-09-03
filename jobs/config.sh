@@ -3,6 +3,7 @@
 : "${PROJECT_DIR:=$HOME/moco}"
 : "${CSV_DIR:=$PROJECT_DIR/metadata/csv_metadata}"
 : "${MANIFEST_TCIA:=$PROJECT_DIR/metadata/manifest.tcia}"
+: "${SERIES_CATALOG:=$PROJECT_DIR/metadata/series_catalog.csv}"
 : "${CONDA_ENV:=moco_env}"
 : "${TOOLS_DIR:=$PROJECT_DIR/tools}"
 
