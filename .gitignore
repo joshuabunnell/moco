@@ -143,7 +143,9 @@ dmypy.json
 outputs/
 *.pth.tar
 *.pt
-.claude
+# Claude Code: track shared config/skills, ignore machine-local state
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # NBIA retriever RPM + extracted app (downloaded/extracted by jobs/tcia_download.sh,
 # not meant to be committed — see jobs/config.sh TOOLS_DIR)

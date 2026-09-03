@@ -1,0 +1,72 @@
+{
+  "skill_name": "sol-jobs",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "I want to run the linear probe using the base run's epoch-199 checkpoint. Give me the exact command to run it, but don't submit anything.",
+      "expected_output": "Recognizes jobs/run_lincls.sh already defaults to CKPT_RUN=base and CKPT=checkpoint_0199, so the command is just `sbatch jobs/run_lincls.sh` with no --export needed. Does not rewrite the script. Knows it is -p public -q public with --gres=gpu:a100:1. Does not submit.",
+      "files": [],
+      "assertions": [
+        "Uses the committed jobs/run_lincls.sh unchanged (base + checkpoint_0199 are already its defaults, so `sbatch jobs/run_lincls.sh` needs no --export overrides).",
+        "Does not rewrite or edit the script.",
+        "States the job is -p public -q public with --gres=gpu:a100:1.",
+        "Does not suggest the OnDemand / web UI.",
+        "Does not actually execute sbatch (command text or --test-only only)."
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "I've got about 4000 CT series in /scratch/$USER/moco/raw and a script scripts/process_one.py that takes --index N and handles one series in roughly 8 minutes. I want all of them processed on Sol. Set it up and give me the submit command, but don't submit it.",
+      "expected_output": "A single job array (--array=0-3999, throttled with %K), placed on -p htc -q public because one 8-minute task fits the 4h cap, %A_%a logs, modest per-task resources. Not a loop of sbatch calls. Does not submit.",
+      "files": [],
+      "assertions": [
+        "Uses a single SLURM job array (--array=0-3999 or manifest-driven), not a shell/python loop of sbatch calls.",
+        "Places the array on -p htc -q public because one 8-minute task fits well under the 4h htc cap.",
+        "Throttles concurrency with %K (e.g. --array=0-3999%50).",
+        "Array logs use the %A_%a pattern (array id + task index).",
+        "Per-task #SBATCH resources are modest (single-digit cores, tens of GB), not a whole-node / multi-GPU ask.",
+        "Does not actually execute sbatch."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "What sbatch header should I use to pretrain for about 10 days on two H100s?",
+      "expected_output": "-p general (H100 is not in public), -q private (preemptable; -q long and grp_ QoS are not granted, verify with myaccounts -p), --gres=gpu:h100:2, -t within the 14-day general cap, and an explicit note that the job is preemptable and must checkpoint/resume. Does not submit.",
+      "files": [],
+      "assertions": [
+        "Chooses -p general (H100 is not in the public partition), not -p public or -p htc.",
+        "Uses -q private and explicitly notes -q long and a grp_<lab> QoS are not granted to this account (verify with myaccounts -p).",
+        "GPU request is --gres=gpu:h100:2 (or -G h100:2), a valid Sol GRES form.",
+        "Walltime is within general's 14-day cap (e.g. -t 10-00:00:00).",
+        "States the job is preemptable under -q private and must checkpoint / be resumable.",
+        "Does not actually execute sbatch."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "One of my jobs has been (Priority) for an hour. Another just went to QOSMaxCpuPerJobLimit and I always submit with -q public. What's happening and what do I do?",
+      "expected_output": "(Priority) is normal fairshare queueing (backfill / smaller job starts sooner). QOSMaxCpuPerJobLimit cannot be a real -q public per-job cap (public has none), so the job is on debug/class/a typo'd QoS or it's really QOSMaxCpuPerUserLimit; confirm with scontrol show job / sacctmgr show qos, then resubmit on -q public. No script, no submission.",
+      "files": [],
+      "assertions": [
+        "Explains (Priority) as normal fairshare queueing behind higher-priority work, not an error; mentions backfill or that a smaller/shorter job starts sooner.",
+        "Recognizes that -q public has no per-job CPU cap, so QOSMaxCpuPerJobLimit means the job is not really on -q public (leftover -q debug, a class QoS, or a typo) or is actually the PerUser variant.",
+        "Recommends confirming with `scontrol show job <id>` (QOS= field) and/or `sacctmgr show qos` before acting.",
+        "Recommended fix is to put the job back on -q public and resubmit; does not over-promise an in-place `scontrol update ... QOS=` change (or notes it may be denied).",
+        "Writes no batch script and submits/modifies no real job."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Write me a Sol batch job that runs `python scripts/heavy_prep.py --in /scratch/$USER/raw --out /scratch/$USER/out` on one GPU. It chews through about 200 GB and takes roughly 6 hours. Give me the script and the command to submit it, but don't actually submit it.",
+      "expected_output": "New sbatch script on -p public -q public (6h > htc 4h cap), --gres=gpu:a100:1, walltime with headroom but not maintenance-padded, module load + source activate in the body, cd to project dir, a --test-only / debug validation step. Does not submit. (Covered well in iteration-1; retained for regression.)",
+      "files": [],
+      "assertions": [
+        "Script uses -p public, not -p htc, because 6h exceeds the htc 4h cap.",
+        "Requests one GPU with a valid GRES string (--gres=gpu:a100:1 or -G a100:1).",
+        "Script body runs `module load mamba/latest` and `source activate` (not `conda activate`), and cd's to the project dir.",
+        "Recommends `sbatch --test-only` or a `-q debug -t 15` smoke run before the real submit.",
+        "Does not actually execute sbatch."
+      ]
+    }
+  ]
+}
