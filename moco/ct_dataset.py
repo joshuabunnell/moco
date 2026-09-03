@@ -1,6 +1,6 @@
 """Dataset for MoCo v2 pretraining on cached CT volume tensors.
 
-Loads preprocessed 3D CT volumes (.pt files) produced by ``scripts/prep_data.py``,
+Loads preprocessed 3D CT volumes (.pt files) produced by ``scripts/data/prep_data.py``,
 extracts random 2.5D crops (224x224x3), and generates two independently augmented
 views for contrastive learning.  Each volume is sampled multiple times per epoch
 via the ``crops_per_volume`` multiplier so that the effective dataset size exceeds

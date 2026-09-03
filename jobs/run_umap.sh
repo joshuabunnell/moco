@@ -30,7 +30,7 @@ mkdir -p "${UMAP_DIR}"
 CKPT="${CKPT:-checkpoint_0199}"
 CKPT_RUN="${CKPT_RUN:-base}"
 
-python scripts/visualize_umap.py \
+python scripts/eval/visualize_umap.py \
     --checkpoint "${CKPT_ROOT}/${CKPT_RUN}/${CKPT}.pth.tar" \
     --data "${TENSOR_DIR}" \
     --output "${UMAP_DIR}/umap_${CKPT_RUN}_${CKPT}.png" \

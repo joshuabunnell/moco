@@ -5,21 +5,21 @@ image transforms (reorientation, resampling, windowing), and saves each
 processed volume as a PyTorch tensor.  Supports two execution modes:
 
 Sequential (single machine):
-    python scripts/prep_data.py \\
+    python scripts/data/prep_data.py \\
         --input-dirs "/scratch/$USER/moco/raw/CT COLONOGRAPHY" \\
             /scratch/$USER/moco/raw/Pediatric-CT-SEG \\
         --cache-dir /scratch/$USER/moco/tensors
 
 SLURM array jobs (HPC) — normally run via jobs/prep_array.sh:
     # Phase 1 — discover series and write manifest (login node, no DICOM I/O)
-    python scripts/prep_data.py --discover \\
+    python scripts/data/prep_data.py --discover \\
         --input-dirs "/scratch/$USER/moco/raw/CT COLONOGRAPHY" \\
             /scratch/$USER/moco/raw/Pediatric-CT-SEG \\
         --cache-dir /scratch/$USER/moco/tensors \\
         --manifest /scratch/$USER/moco/tensors/series_manifest.txt
 
     # Phase 2 — process one series per array task
-    python scripts/prep_data.py \\
+    python scripts/data/prep_data.py \\
         --process-index $SLURM_ARRAY_TASK_ID \\
         --manifest /scratch/$USER/moco/tensors/series_manifest.txt
 """

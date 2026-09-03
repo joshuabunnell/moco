@@ -26,7 +26,7 @@ MANIFEST="${TENSOR_DIR}/series_manifest.txt"
 
 if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
     # Phase 1 — discovery (runs once): walks the raw DICOM dirs, writes the manifest, then re-submits this script as an array job sized to the count.
-    python scripts/prep_data.py --discover \
+    python scripts/data/prep_data.py --discover \
         --input-dirs \
             "${RAW_ACRIN}" \
             "${RAW_PEDIATRIC}" \
@@ -57,7 +57,7 @@ if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
 
 else
     # Phase 2 — process one series (runs once per array task, via SLURM_ARRAY_TASK_ID).
-    python scripts/prep_data.py \
+    python scripts/data/prep_data.py \
         --process-index "${SLURM_ARRAY_TASK_ID}" \
         --manifest "${MANIFEST}"
 fi

@@ -14,7 +14,7 @@ Class labels (configurable via ``--label-scheme``):
     three:     0 = no polyp, 1 = medium (6-9mm), 2 = large (>=10mm)
 
 Usage:
-    python scripts/split_data.py \
+    python scripts/data/split_data.py \
         --manifest /scratch/$USER/moco/tensors/CT-COLONOGRAPHY/manifest.csv \
         --metadata csv_metadata/acrin_combined.csv \
         --output-dir csv_metadata \

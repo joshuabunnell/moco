@@ -10,7 +10,7 @@ per-lesion flag.  This script extracts the largest polyp size per patient
 for the combined output.
 
 Usage:
-    python scripts/convert_metadata.py \
+    python scripts/data/convert_metadata.py \
         --input-dir raw_metadata/ACRIN_6664 \
         --output-dir csv_metadata
 """

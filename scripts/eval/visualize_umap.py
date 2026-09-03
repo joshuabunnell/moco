@@ -6,7 +6,7 @@ the 2048-dimensional ResNet-50 feature space, extracts one or more crops per
 cached CT volume, then projects features to 2D with UMAP for visualization.
 
 Usage:
-    python scripts/visualize_umap.py \
+    python scripts/eval/visualize_umap.py \
         --checkpoint /path/to/checkpoint_0199.pth.tar \
         --data /path/to/tensors \
         --output umap.png
@@ -19,7 +19,7 @@ import sys
 
 # Ensure the project root is on the path so `from moco import ...` works
 # regardless of the working directory when invoking this script.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import matplotlib.pyplot as plt
 import numpy as np
