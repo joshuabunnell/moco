@@ -1,10 +1,18 @@
 #!/bin/bash
+#
+# Single source of truth for every path the job scripts use. Nothing here is
+# hardcoded to a username: everything derives from $USER (or $HOME), so any
+# member of grp_vkodibag can run the committed scripts unchanged. Each value is
+# assigned with := so a caller can override it in the environment.
 
 : "${PROJECT_DIR:=$HOME/moco}"
 : "${CSV_DIR:=$PROJECT_DIR/metadata/csv_metadata}"
 : "${MANIFEST_TCIA:=$PROJECT_DIR/metadata/manifest.tcia}"
 : "${SERIES_CATALOG:=$PROJECT_DIR/metadata/series_catalog.csv}"
 : "${CONDA_ENV:=moco_env}"
+# Deliberately under $HOME, not scratch: the retriever is a build dependency, not
+# disposable data, and nothing reads it often enough to survive the 90-day purge
+# on its own. A hand-extracted JDK kept in scratch rotted exactly this way.
 : "${TOOLS_DIR:=$PROJECT_DIR/tools}"
 
 : "${DATA_ROOT:=/scratch/$USER/moco}"
