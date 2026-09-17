@@ -35,6 +35,9 @@ esac
 
 # Pediatric-CT-SEG has ~354 volumes, so one epoch of crops is smaller than a
 # 16384 queue. Shrink it for that run: sbatch --export=DATASET=pediatric,MOCO_K=4096 jobs/train_moco.sh
+# CROP_OVERLAP="0.3 0.7" draws q and k as two overlapping crops (E1 onward);
+# unset keeps the E0 recipe of one crop augmented twice.
+CROP_OVERLAP="${CROP_OVERLAP:-}"
 MOCO_K="${MOCO_K:-16384}"
 EPOCHS="${EPOCHS:-200}"
 RUN="${RUN:-${DATASET}}"
@@ -79,6 +82,7 @@ python main_moco.py "${DATA_DIR}" \
     --moco-dim 128 \
     --moco-k "${MOCO_K}" \
     --crops-per-volume 20 \
+    ${CROP_OVERLAP:+--crop-overlap ${CROP_OVERLAP}} \
     --moco-m 0.999 \
     --moco-t 0.07 \
     --workers 32 \

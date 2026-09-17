@@ -268,8 +268,23 @@ seeding, since the parent trained on ~40 distinct crop sets repeated every epoch
   instead of one crop deep-copied twice.
 - **Why:** the single change Phase 0 points at. Currently q and k are the same
   pixels, so the task is solvable from a texture fingerprint.
+- **Parameters (pre-registered 2026-09-17, before implementation):** in-plane
+  overlap of the two crops is drawn uniformly from **30-70% of a crop's area**,
+  split randomly between the two axes, with an independent z shift of **-2 to +2
+  slices**. Rationale: at 100% overlap this is E0; at 0% the pair is often two
+  unrelated organs, since a 224 mm crop of a ~356 mm volume means two disjoint
+  crops can sit on opposite sides of the abdomen. 30-70% keeps a shared
+  structure in both views while forcing the encoder off a pixel-exact match.
+  Same crop size (224 mm) as E0, so this rung changes position only, not scale.
+  Where a shift would run off the volume the crop is taken from the other side
+  when that fits, and clipped to the edge otherwise, so realised overlap can
+  exceed 70% on small volumes.
 - **Prediction:** the largest single jump in the ladder. Acc@1 falls out of
-  saturation; alignment cosine drops below 0.99; cross-position above 0.40.
+  saturation (below 95% at epoch 50, so the amended gate does not fire);
+  alignment cosine drops below 0.99; cross-position above 0.40. Also predicted:
+  `knn_zpos` improves on E0's 0.1277, because a pair offset in z makes absolute
+  depth less recoverable from a single crop, but it stays above random init's
+  0.1041 until E4 removes same-volume negatives.
 
 ### E2 — scale jitter
 

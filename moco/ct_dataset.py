@@ -26,7 +26,7 @@ from monai.transforms.transform import Randomizable
 from monai.transforms.utility.dictionary import Lambdad
 from torch.utils.data import Dataset, get_worker_info
 
-from moco import list_volumes, random_crop, to_resnet_format
+from moco import list_volumes, random_crop, random_crop_pair, to_resnet_format
 
 
 def seed_worker_transforms(worker_id):
@@ -51,11 +51,20 @@ class CTMoCoDataset(Dataset):
         crops_per_volume: Number of random crops to draw from each volume per
             epoch.  Multiplies the effective dataset length so the model sees
             diverse spatial regions without reloading new volumes.
+        pair_overlap: ``(low, high)`` fraction of a crop's area shared by the two
+            views, or None to take one crop and augment it twice.  None is the
+            pre-2026-09 recipe, in which q and k are the same pixels and the
+            pretext task is solvable from a texture fingerprint.
+        pair_z_shift: Maximum slice offset between the two crops when
+            *pair_overlap* is set.
     """
 
-    def __init__(self, data_dir, crops_per_volume=20):
+    def __init__(self, data_dir, crops_per_volume=20, pair_overlap=None,
+                 pair_z_shift=2):
         self.files = list_volumes(data_dir)
         self.crops_per_volume = crops_per_volume
+        self.pair_overlap = pair_overlap
+        self.pair_z_shift = pair_z_shift
         print(f"Found {len(self.files)} 3D volumes for Pretraining "
               f"({len(self.files) * crops_per_volume} effective samples "
               f"with {crops_per_volume} crops/volume).")
@@ -97,13 +106,20 @@ class CTMoCoDataset(Dataset):
             Tuple of ([view_q, view_k], 0) where each view is a (3, 224, 224)
             tensor and 0 is a dummy label (MoCo is self-supervised).
         """
-        base_crop = {"image": random_crop(self.files[idx % len(self.files)])}
+        path = self.files[idx % len(self.files)]
 
-        # Deep copy so each view gets independent random augmentations.
-        # MONAI dict transforms mutate in place — without copies, view_k
-        # would be a double-augmented version of view_q, not a separate view.
-        view_q = self.moco_augs(copy.deepcopy(base_crop))["image"]
-        view_k = self.moco_augs(copy.deepcopy(base_crop))["image"]
+        if self.pair_overlap:
+            crop_q, crop_k = random_crop_pair(
+                path, overlap=self.pair_overlap, z_shift=self.pair_z_shift)
+        else:
+            # Deep copy so each view gets independent random augmentations.
+            # MONAI dict transforms mutate in place — without copies, view_k
+            # would be a double-augmented version of view_q, not a separate view.
+            crop_q = random_crop(path)
+            crop_k = copy.deepcopy(crop_q)
+
+        view_q = self.moco_augs({"image": crop_q})["image"]
+        view_k = self.moco_augs({"image": crop_k})["image"]
 
         return [view_q, view_k], 0
 

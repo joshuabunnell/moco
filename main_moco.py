@@ -188,6 +188,21 @@ parser.add_argument(
 )
 parser.add_argument("--cos", action="store_true", help="use cosine lr schedule")
 parser.add_argument("--crops-per-volume", default=20, type=int, help="random crops per volume per epoch (default: 20)")
+parser.add_argument(
+    "--crop-overlap",
+    nargs=2,
+    type=float,
+    default=None,
+    metavar=("LOW", "HIGH"),
+    help="draw q and k as two crops sharing this fraction of their area "
+         "(e.g. 0.3 0.7); omit to crop once and augment it twice",
+)
+parser.add_argument(
+    "--pair-z-shift",
+    default=2,
+    type=int,
+    help="max slice offset between the two crops of a pair (default: 2)",
+)
 parser.add_argument("--save-freq", default=50, type=int, help="checkpoint save frequency in epochs (default: 50)")
 parser.add_argument(
     "--output-dir",
@@ -345,7 +360,12 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # Data loading code — cached volumes live directly under args.data,
     # not in a train/ subdirectory (no labels for self-supervised pretraining)
-    train_dataset = CTMoCoDataset(args.data, crops_per_volume=args.crops_per_volume)
+    train_dataset = CTMoCoDataset(
+        args.data,
+        crops_per_volume=args.crops_per_volume,
+        pair_overlap=tuple(args.crop_overlap) if args.crop_overlap else None,
+        pair_z_shift=args.pair_z_shift,
+    )
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
