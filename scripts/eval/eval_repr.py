@@ -20,6 +20,10 @@ Metrics
                     task).  Balanced accuracy against the majority-class floor.
     knn_collection  ACRIN vs Pediatric.  A sanity check: any encoder that
                     cannot do this is broken.
+    knn_prep,       Bowel prep protocol (3-way) and iodinated oral contrast
+    knn_contrast    compliance, from the clinical table.  Confounder probes, not
+                    targets: contrast tags stool bright, so an encoder that
+                    scores high here may be sorting by tagging, not anatomy.
     knn_zpos        k-NN regression of depth fraction.  Tests whether features
                     encode where in the body a slab came from.
     supine_prone    Retrieve another series of the same patient out of the ACRIN
@@ -220,7 +224,11 @@ def series_embeddings(features, index):
 
 
 def knn_score(train_x, train_y, test_x, test_y, k=15):
-    """Cosine k-NN balanced accuracy, reported against the majority-class floor."""
+    """Cosine k-NN accuracy, each reported beside its own chance level.
+
+    Balanced accuracy's chance is 1 / n_classes whatever the class balance;
+    ``majority_floor`` is the chance for plain accuracy only.
+    """
     if len(set(train_y)) < 2 or len(test_y) == 0:
         return None
     k = min(k, len(train_y))
@@ -232,6 +240,7 @@ def knn_score(train_x, train_y, test_x, test_y, k=15):
         "balanced_accuracy": float(balanced_accuracy_score(test_y, pred)),
         "accuracy": float(np.mean(pred == test_y)),
         "majority_floor": float(counts.max() / counts.sum()),
+        "chance_balanced": float(1.0 / len(counts)),
         "n_train": int(len(train_y)),
         "n_test": int(len(test_y)),
     }
@@ -306,6 +315,49 @@ def supine_prone_retrieval(emb, patients, collections, positions):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+# Classes smaller than this are dropped from a confounder probe rather than
+# scored: one Magnesium citrate subject cannot be split across train and test.
+MIN_CLASS_PATIENTS = 10
+
+CONFOUNDERS = {
+    "knn_prep": "type_of_colon_prep_utilizied",
+    "knn_contrast": "iodinated_oral_contrast_taken_as_directed",
+}
+
+
+def load_clinical(path):
+    """Read clinical_data.csv into a dict of patient_id -> row, or {} if absent."""
+    if not os.path.exists(path):
+        return {}
+    with open(path, newline="") as f:
+        return {r["patient_id"]: r for r in csv.DictReader(f)}
+
+
+def confounder_probe(emb, patients, collections, clinical, column, held, k, rng):
+    """k-NN predict one clinical column from ACRIN series embeddings.
+
+    Uses the same held-out patient half as the collection probe, so no patient
+    contributes series to both sides. The training side is subsampled to equal
+    counts per class: contrast compliance is 692 / 60, and against that a k=15
+    vote returns the majority for every query, scoring exactly chance whatever
+    the features hold.
+    """
+    labels = np.array([(clinical.get(p) or {}).get(column, "") for p in patients])
+    keep = (collections == ACRIN_COLLECTION) & (labels != "")
+    for value in np.unique(labels[keep]):
+        if len({p for p in patients[keep & (labels == value)]}) < MIN_CLASS_PATIENTS:
+            keep &= labels != value
+    is_test = np.array([p in held for p in patients])
+    train = np.where(keep & ~is_test)[0]
+    values, counts = np.unique(labels[train], return_counts=True)
+    if len(values) < 2:
+        return None
+    train = np.sort(np.concatenate([
+        rng.choice(train[labels[train] == v], counts.min(), replace=False) for v in values]))
+    return knn_score(emb[train], labels[train],
+                     emb[keep & is_test], labels[keep & is_test], k)
+
+
 def load_label_csv(path):
     """Read a split CSV into a dict of filename -> int label."""
     if not os.path.exists(path):
@@ -320,7 +372,7 @@ def main():
     parser.add_argument("--checkpoint", default=None, help="Required for --encoder moco")
     parser.add_argument("--bank-dir", required=True, help="Directory holding bank.npy")
     parser.add_argument("--csv-dir", default="metadata/csv_metadata",
-                        help="Directory holding labels_{train,val}.csv")
+                        help="Directory holding labels_{train,val}.csv and clinical_data.csv")
     parser.add_argument("--arch", default="resnet50")
     parser.add_argument("--batch-size", default=256, type=int)
     parser.add_argument("--knn-k", default=15, type=int)
@@ -396,6 +448,12 @@ def main():
         report["knn_polyp"] = None
         print("WARNING: no overlap between the bank and the label CSVs")
 
+    clinical = load_clinical(os.path.join(args.csv_dir, "clinical_data.csv"))
+    for name, column in CONFOUNDERS.items():
+        report[name] = (confounder_probe(emb, patients, collections, clinical,
+                                         column, held, args.knn_k, rng)
+                        if clinical else None)
+
     report["supine_prone"] = supine_prone_retrieval(emb, patients, collections, positions)
 
     out = args.output or os.path.join(args.bank_dir, "eval_%s.json" % args.encoder)
@@ -408,14 +466,20 @@ def main():
     print("  Uniformity        %8.4f  (more negative better)" % report["uniformity"])
     if report["knn_collection"]:
         c = report["knn_collection"]
-        print("  kNN collection    %8.3f bal-acc  (floor %.3f)"
-              % (c["balanced_accuracy"], c["majority_floor"]))
+        print("  kNN collection    %8.3f bal-acc  (chance %.3f)"
+              % (c["balanced_accuracy"], c["chance_balanced"]))
     z = report["knn_zpos"]
     print("  kNN depth MAE     %8.4f  (predict-mean %.4f)" % (z["mae"], z["mae_predict_mean"]))
     if report["knn_polyp"]:
         p = report["knn_polyp"]
-        print("  kNN polyp         %8.3f bal-acc  (floor %.3f, n=%d/%d)"
-              % (p["balanced_accuracy"], p["majority_floor"], p["n_train"], p["n_test"]))
+        print("  kNN polyp         %8.3f bal-acc  (chance %.3f, n=%d/%d)"
+              % (p["balanced_accuracy"], p["chance_balanced"], p["n_train"], p["n_test"]))
+    for name in CONFOUNDERS:
+        c = report[name]
+        if c:
+            print("  %-17s %8.3f bal-acc  (chance %.3f, n=%d/%d)  confounder, lower is cleaner"
+                  % (name.replace("_", " ", 1), c["balanced_accuracy"], c["chance_balanced"],
+                     c["n_train"], c["n_test"]))
     for kind in ("any_series", "cross_position"):
         r = (report["supine_prone"] or {}).get(kind)
         if r:

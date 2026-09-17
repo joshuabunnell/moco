@@ -25,11 +25,13 @@ FIELDS = [
     "cross_position_top1", "cross_position_top5", "any_series_top1",
     "rankme", "alignment_cos", "uniformity",
     "knn_zpos_mae", "knn_polyp_bal_acc", "knn_collection_bal_acc",
+    "knn_prep_bal_acc", "knn_contrast_bal_acc",
     "n_crops", "n_series", "eval_json",
 ]
 
 # Reported alongside every run: the Phase 0 bar to beat and the chance rate.
-IMAGENET_CROSS_POSITION = 0.4925
+# P0r (rebuilt bank, 2026-09-16); P0 on the old bank was 0.4925.
+IMAGENET_CROSS_POSITION = 0.4943
 
 
 def flatten(report, run_id, note, path):
@@ -54,6 +56,8 @@ def flatten(report, run_id, note, path):
         "knn_zpos_mae": probe("knn_zpos", "mae"),
         "knn_polyp_bal_acc": probe("knn_polyp", "balanced_accuracy"),
         "knn_collection_bal_acc": probe("knn_collection", "balanced_accuracy"),
+        "knn_prep_bal_acc": probe("knn_prep", "balanced_accuracy"),
+        "knn_contrast_bal_acc": probe("knn_contrast", "balanced_accuracy"),
         "n_crops": report.get("n_crops"),
         "n_series": report.get("n_series"),
         "eval_json": os.path.basename(path),
