@@ -1,4 +1,4 @@
-"""Extract a fixed evaluation crop bank from the cached .pt volumes.
+"""Extract a fixed evaluation crop bank from the cached HU volumes.
 
 Phase 0 evaluation compares several encoders (random init, ImageNet init, one or
 more MoCo checkpoints) against each other.  Re-deriving crops per encoder would
@@ -18,8 +18,10 @@ runs:
   224 px crop, so centring keeps the body core in frame and removes the run to
   run variance that a random offset would add to every reported metric.
 
-Values are stored as uint8.  ``prep_data.py`` maps a 400 HU window onto [0, 1],
-so a uint8 level is 1.56 HU, well under CT's ~10-20 HU noise floor.
+Values are stored as uint8 after applying ``moco.HU_WINDOW`` (400 HU wide), so a
+uint8 level is 1.56 HU, well under CT's ~10-20 HU noise floor.  The bank is tied
+to that window: a run trained on a different window must be scored on a bank
+rebuilt with it, or the comparison mixes two input distributions.
 
 Usage:
     python scripts/eval/build_crop_bank.py \\
@@ -31,17 +33,16 @@ Usage:
 
 import argparse
 import csv
-import glob
 import os
+import sys
 import time
 from multiprocessing import Pool
 
 import numpy as np
-import torch
-import torch.serialization
-from monai.data.meta_tensor import MetaTensor
 
-torch.serialization.add_safe_globals([np.ndarray, np.dtype, MetaTensor])
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+
+from moco import apply_window, list_volumes, load_volume  # noqa: E402
 
 CROP_HW = 224
 SLAB_D = 3
@@ -82,13 +83,11 @@ def extract_volume(task):
     """
     idx, fpath, k = task
     try:
-        vol = torch.load(fpath, weights_only=False)
-        arr = vol[0] if vol.ndim == 4 else vol
-        arr = np.asarray(arr, dtype=np.float32)
+        vol = load_volume(fpath)
     except Exception as exc:
         return idx, None, "%s: %s" % (type(exc).__name__, exc)
 
-    depth = arr.shape[2]
+    depth = vol.shape[0]
     crops = np.zeros((k, SLAB_D, CROP_HW, CROP_HW), dtype=np.uint8)
     meta = []
 
@@ -96,10 +95,9 @@ def extract_volume(task):
         z_frac = (i + 0.5) / k
         z0 = int(round(z_frac * depth)) - SLAB_D // 2
         z0 = max(0, min(z0, max(depth - SLAB_D, 0)))
-        slab = arr[:, :, z0:z0 + SLAB_D]
-
-        # Depth-last (H, W, D) to channel-first (D, H, W), matching to_resnet_format.
-        slab = np.transpose(slab, (2, 0, 1))
+        # Cache is (z, y, x); (z, x, y) matches the orientation to_resnet_format
+        # gives training crops, so bank and training images are not transposed.
+        slab = apply_window(vol[z0:z0 + SLAB_D]).transpose(0, 2, 1)
         if slab.shape[0] < SLAB_D:
             pad = np.zeros((SLAB_D - slab.shape[0],) + slab.shape[1:], dtype=slab.dtype)
             slab = np.concatenate([slab, pad], axis=0)
@@ -114,11 +112,11 @@ def extract_volume(task):
 def patient_id_of(filename):
     """Recover the patient ID from a cache filename.
 
-    ``prep_data.series_filename`` builds ``<patient_id>_<4 hex>.pt``, so the ID
+    ``prep_data.series_filename`` builds ``<patient_id>_<4 hex>.npy``, so the ID
     is everything before the final underscore.  Only a fallback: prefer
     ``load_series_index`` where a manifest exists (see its docstring).
     """
-    stem = os.path.basename(filename)[:-3]
+    stem = os.path.splitext(os.path.basename(filename))[0]
     return stem.rsplit("_", 1)[0]
 
 
@@ -127,18 +125,16 @@ def load_series_index(tensor_dirs):
 
     Two things come out of the manifest that the filename alone cannot give:
 
-    * **The true patient ID.**  An older ``prep_data.py`` wrote an md5 as the
-      ``patient_id`` for the 40 patients using TCIA's ``CTC-…`` subject naming,
-      and it hashed per *series*, so those patients fragment into one bogus
-      patient each.  The manifest's ``series_path`` still holds the real patient
-      directory, which regroups them.
+    * **The true patient ID.**  Caches built before 2026-09 hashed the
+      ``patient_id`` of the 40 patients using TCIA's ``CTC-…`` subject naming, so
+      their filenames do not carry it.  The manifest's ``series_path`` always
+      holds the real patient directory.
     * **Scan position.**  CT colonography scans each patient supine and prone;
       the series directory name records which.  Only the series dir is inspected,
       never the study dir, because study names like ``SupineandProneColon``
       describe the whole exam and would match both.
 
-    Source paths in the manifest predate the current scratch layout and no longer
-    resolve, but they are parsed as strings only.  Layout is uniformly
+    Source paths are parsed as strings only, so they need not resolve.  Layout is uniformly
     ``.../<collection>/<patient>/<study>/<series>``.
     """
     index = {}
@@ -168,7 +164,7 @@ def load_series_index(tensor_dirs):
 def main():
     parser = argparse.ArgumentParser(description="Build the Phase 0 evaluation crop bank")
     parser.add_argument("--tensor-dirs", nargs="+", required=True, metavar="DIR",
-                        help="One or more directories of cached .pt volumes")
+                        help="One or more directories of cached volumes")
     parser.add_argument("--output-dir", required=True, metavar="DIR",
                         help="Destination for bank.npy and bank_index.csv")
     parser.add_argument("--crops", type=int, default=16,
@@ -181,13 +177,13 @@ def main():
 
     files = []
     for d in args.tensor_dirs:
-        found = sorted(glob.glob(os.path.join(d, "**/*.pt"), recursive=True))
+        found = list_volumes(d)
         print("%5d volumes in %s" % (len(found), d))
         files.extend(found)
     if args.limit:
         files = files[:args.limit]
     if not files:
-        parser.error("no .pt files found under the given --tensor-dirs")
+        parser.error("no cached volumes found under the given --tensor-dirs")
 
     series_index = load_series_index(args.tensor_dirs)
     covered = sum(1 for f in files if os.path.basename(f) in series_index)

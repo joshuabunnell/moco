@@ -1,7 +1,7 @@
 """Dataset for MoCo v2 pretraining on cached CT volume tensors.
 
-Loads preprocessed 3D CT volumes (.pt files) produced by ``scripts/data/prep_data.py``,
-extracts random 2.5D crops (224x224x3), and generates two independently augmented
+Reads cached HU volumes (``.npy``) produced by ``scripts/data/prep_data.py``,
+extracts random 2.5D crops (224x224x3) windowed at load time, and generates two independently augmented
 views for contrastive learning.  Each volume is sampled multiple times per epoch
 via the ``crops_per_volume`` multiplier so that the effective dataset size exceeds
 the number of physical volumes.
@@ -13,58 +13,52 @@ HU values encode physical tissue density.
 """
 
 import copy
-import glob
 import os
 
-import numpy as np
-import torch
-import torch.serialization
 from monai.transforms.compose import Compose
-from monai.transforms.croppad.dictionary import RandSpatialCropd, ResizeWithPadOrCropd
+from monai.transforms.croppad.dictionary import ResizeWithPadOrCropd
 from monai.transforms.intensity.dictionary import (
     RandGaussianNoised,
     RandGaussianSmoothd,
 )
 from monai.transforms.spatial.dictionary import RandFlipd, RandRotated
+from monai.transforms.transform import Randomizable
 from monai.transforms.utility.dictionary import Lambdad
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, get_worker_info
 
-from moco import to_resnet_format
+from moco import list_volumes, load_volume, random_crop, to_resnet_format
 
-# MONAI MetaTensor serializes numpy affine/metadata alongside the tensor.
-# PyTorch 2.6+ validates globals even with weights_only=False, so we must
-# allowlist the types used by MONAI before any torch.load call.
-from monai.data.meta_tensor import MetaTensor
 
-torch.serialization.add_safe_globals([
-    np.ndarray,
-    np.dtype,
-    MetaTensor,
-])
+def seed_worker_transforms(worker_id):
+    """DataLoader ``worker_init_fn`` giving each worker its own MONAI random stream.
+
+    MONAI random transforms hold a private ``RandomState`` that PyTorch does not
+    reseed, so without this every worker draws the identical sequence of flips,
+    rotations and noise, and draws it again each epoch when workers restart.
+    Runs before 2026-09 all trained that way.
+    """
+    info = get_worker_info()
+    for attr in vars(info.dataset).values():
+        if isinstance(attr, Randomizable):
+            attr.set_random_state(seed=info.seed % 2**32)
 
 
 class CTMoCoDataset(Dataset):
     """PyTorch Dataset that yields contrastive pairs from cached CT volumes.
 
     Args:
-        data_dir: Root directory containing preprocessed ``.pt`` tensor files.
-            Files are discovered recursively via ``**/*.pt``.
+        data_dir: Root directory of cached ``.npy`` volumes, searched recursively.
         crops_per_volume: Number of random crops to draw from each volume per
             epoch.  Multiplies the effective dataset length so the model sees
             diverse spatial regions without reloading new volumes.
     """
 
     def __init__(self, data_dir, crops_per_volume=20):
-        self.files = glob.glob(os.path.join(data_dir, "**/*.pt"), recursive=True)
+        self.files = list_volumes(data_dir)
         self.crops_per_volume = crops_per_volume
         print(f"Found {len(self.files)} 3D volumes for Pretraining "
               f"({len(self.files) * crops_per_volume} effective samples "
               f"with {crops_per_volume} crops/volume).")
-
-        # Base extraction: random 2.5D crop (224x224 axial plane x 3 adjacent slices)
-        self.extract_crop = RandSpatialCropd(
-            keys=["image"], roi_size=(224, 224, 3), random_size=False
-        )
 
         # MoCo augmentations — only transforms that preserve HU semantics
         self.moco_augs = Compose(
@@ -103,10 +97,8 @@ class CTMoCoDataset(Dataset):
             Tuple of ([view_q, view_k], 0) where each view is a (3, 224, 224)
             tensor and 0 is a dummy label (MoCo is self-supervised).
         """
-        file_idx = idx % len(self.files)
-        volume = {"image": torch.load(self.files[file_idx], weights_only=False)}
-
-        base_crop = self.extract_crop(volume)
+        volume = load_volume(self.files[idx % len(self.files)])
+        base_crop = {"image": random_crop(volume)}
 
         # Deep copy so each view gets independent random augmentations.
         # MONAI dict transforms mutate in place — without copies, view_k
@@ -120,16 +112,16 @@ class CTMoCoDataset(Dataset):
 class CTLinClsDataset(Dataset):
     """PyTorch Dataset that yields labeled 2.5D crops from cached CT volumes.
 
-    Reads a CSV file mapping ``.pt`` filenames to integer class labels, loads
+    Reads a CSV file mapping cached ``.npy`` filenames to integer class labels, loads
     the corresponding volume, extracts a random 2.5D crop, and applies mild
     augmentations (train) or deterministic center-padding (val).
 
-    The CSV must have columns ``filename`` (basename of the ``.pt`` file) and
+    The CSV must have columns ``filename`` (basename of the ``.npy`` file) and
     ``label`` (integer class index).  Patient-level splitting is handled
     externally by providing separate CSVs for train and val.
 
     Args:
-        data_dir: Directory containing preprocessed ``.pt`` tensor files.
+        data_dir: Directory containing cached ``.npy`` volumes.
         labels_csv: Path to a CSV with ``filename`` and ``label`` columns.
         crops_per_volume: Number of random crops per volume per epoch.
         is_train: If True, apply spatial augmentations; if False, only pad/crop.
@@ -153,16 +145,12 @@ class CTLinClsDataset(Dataset):
               f"({len(self.entries) * crops_per_volume} effective samples, "
               f"{'train' if is_train else 'val'})")
 
-        self.extract_crop = RandSpatialCropd(
-            keys=["image"], roi_size=(224, 224, 3), random_size=False
-        )
         self.pad_crop = ResizeWithPadOrCropd(
             keys=["image"], spatial_size=(224, 224, 3)
         )
 
         if is_train:
             self.transform = Compose([
-                self.extract_crop,
                 self.pad_crop,
                 # Mild spatial augmentations — same philosophy as pretraining
                 # but lighter since the linear head trains quickly
@@ -173,7 +161,6 @@ class CTLinClsDataset(Dataset):
             ])
         else:
             self.transform = Compose([
-                self.extract_crop,
                 self.pad_crop,
                 Lambdad(keys=["image"], func=to_resnet_format),
             ])
@@ -189,6 +176,5 @@ class CTLinClsDataset(Dataset):
         """
         file_idx = idx % len(self.entries)
         fpath, label = self.entries[file_idx]
-        volume = {"image": torch.load(fpath, weights_only=False)}
-        crop = self.transform(volume)["image"]
+        crop = self.transform({"image": random_crop(load_volume(fpath))})["image"]
         return crop, label

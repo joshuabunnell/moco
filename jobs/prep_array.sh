@@ -1,14 +1,18 @@
 #!/bin/bash
-# Two-phase: discover series (Phase 1), then process one series per SLURM array task (Phase 2). Array tasks get their own resources via the sbatch call in Phase 1.
+# Preprocess every raw DICOM series into the HU volume cache, one series per task.
+# Submit once with no array: that run discovers the series, writes the manifest,
+# and resubmits this script as an array sized to the count. The resources below
+# are sized for one series, and the discovery run fits inside them too.
+# Override the range to smoke-test a few series first: sbatch --export=ALL,ARRAY=0-4 jobs/prep_array.sh
 #SBATCH -N 1
-#SBATCH -c 2
-#SBATCH --mem=4G
-#SBATCH -t 0-01:00:00
-#SBATCH -p public
+#SBATCH -c 4
+#SBATCH --mem=16G
+#SBATCH -t 0-00:30:00
+#SBATCH -p htc
 #SBATCH -q public
-#SBATCH -J prep_discover
-#SBATCH -o /scratch/%u/moco/logs/%x.%j.out
-#SBATCH -e /scratch/%u/moco/logs/%x.%j.err
+#SBATCH -J prep
+#SBATCH -o /scratch/%u/moco/logs/%x.%A_%a.out
+#SBATCH -e /scratch/%u/moco/logs/%x.%A_%a.err
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=%u@asu.edu
 
@@ -25,11 +29,15 @@ cd "${PROJECT_DIR}"
 MANIFEST="${TENSOR_DIR}/series_manifest.txt"
 
 if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
-    # Phase 1 — discovery (runs once): walks the raw DICOM dirs, writes the manifest, then re-submits this script as an array job sized to the count.
+    # Old .pt caches used a different naming scheme; mixing the two in one
+    # directory would give every series two files and two manifest rows.
+    if compgen -G "${TENSOR_DIR}/*/*.pt" > /dev/null; then
+        echo "ERROR: ${TENSOR_DIR} still holds a .pt cache. Move it aside before rebuilding."
+        exit 1
+    fi
+
     python scripts/data/prep_data.py --discover \
-        --input-dirs \
-            "${RAW_ACRIN}" \
-            "${RAW_PEDIATRIC}" \
+        --input-dirs "${RAW_ACRIN}" "${RAW_PEDIATRIC}" \
         --cache-dir "${TENSOR_DIR}" \
         --manifest "${MANIFEST}"
 
@@ -39,24 +47,10 @@ if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
         exit 1
     fi
 
-    echo "Submitting array job for ${TOTAL} series..."
-    sbatch \
-        --array=0-$((TOTAL - 1)) \
-        -N 1 \
-        -c 4 \
-        --mem=16G \
-        -t 0-00:30:00 \
-        -p htc \
-        -q public \
-        -J prep \
-        -o "/scratch/%u/moco/logs/%x.%A_%a.out" \
-        -e "/scratch/%u/moco/logs/%x.%A_%a.err" \
-        --mail-type=ALL \
-        --mail-user=%u@asu.edu \
-        jobs/prep_array.sh
-
+    ARRAY="${ARRAY:-0-$((TOTAL - 1))}"
+    echo "Submitting array ${ARRAY} over ${TOTAL} series..."
+    sbatch --array="${ARRAY}" jobs/prep_array.sh
 else
-    # Phase 2 — process one series (runs once per array task, via SLURM_ARRAY_TASK_ID).
     python scripts/data/prep_data.py \
         --process-index "${SLURM_ARRAY_TASK_ID}" \
         --manifest "${MANIFEST}"

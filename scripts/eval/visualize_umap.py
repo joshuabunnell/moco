@@ -13,7 +13,6 @@ Usage:
 """
 
 import argparse
-import glob
 import os
 import sys
 
@@ -27,15 +26,9 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 import umap
-from monai.transforms.croppad.dictionary import RandSpatialCropd, ResizeWithPadOrCropd
+from monai.transforms.croppad.dictionary import ResizeWithPadOrCropd
 
-from moco import to_resnet_format
-
-# MONAI MetaTensor safe globals (same registration as ct_dataset.py)
-from monai.data.meta_tensor import MetaTensor
-import torch.serialization
-
-torch.serialization.add_safe_globals([np.ndarray, np.dtype, MetaTensor])
+from moco import list_volumes, load_volume, random_crop, to_resnet_format
 
 
 def build_encoder(checkpoint_path):
@@ -82,7 +75,7 @@ def extract_features(encoder, data_dir, crops_per_volume=1, device="cuda"):
 
     Args:
         encoder: A ResNet-50 model (with projection head removed) in eval mode.
-        data_dir: Root directory containing preprocessed ``.pt`` tensor files.
+        data_dir: Root directory of cached ``.npy`` volumes.
         crops_per_volume: Number of random 2.5D crops per volume.  Using 1 is
             typically sufficient for UMAP; higher values increase density.
         device: Torch device string (``"cuda"`` or ``"cpu"``).
@@ -90,15 +83,12 @@ def extract_features(encoder, data_dir, crops_per_volume=1, device="cuda"):
     Returns:
         Tuple of (features, labels, files) where *features* is an (N, 2048)
         numpy array, *labels* maps each feature to its source file index, and
-        *files* is the list of ``.pt`` file paths.
+        *files* is the list of volume file paths.
     """
-    files = sorted(glob.glob(os.path.join(data_dir, "**/*.pt"), recursive=True))
+    files = list_volumes(data_dir)
     print(f"Extracting features from {len(files)} volumes "
           f"({crops_per_volume} crop(s) each)...")
 
-    crop_transform = RandSpatialCropd(
-        keys=["image"], roi_size=(224, 224, 3), random_size=False
-    )
     pad_crop = ResizeWithPadOrCropd(
         keys=["image"], spatial_size=(224, 224, 3)
     )
@@ -109,10 +99,9 @@ def extract_features(encoder, data_dir, crops_per_volume=1, device="cuda"):
 
     with torch.no_grad():
         for i, fpath in enumerate(files):
-            volume = {"image": torch.load(fpath, weights_only=False)}
+            volume = load_volume(fpath)
             for _ in range(crops_per_volume):
-                crop = crop_transform(volume)
-                crop = pad_crop(crop)
+                crop = pad_crop({"image": random_crop(volume)})
                 img = to_resnet_format(crop["image"]).unsqueeze(0).to(device)
                 feat = encoder(img).squeeze().cpu().numpy()
                 all_features.append(feat)
@@ -127,7 +116,7 @@ def extract_features(encoder, data_dir, crops_per_volume=1, device="cuda"):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True, help="Path to MoCo .pth.tar")
-    parser.add_argument("--data", required=True, help="Path to cached .pt tensors")
+    parser.add_argument("--data", required=True, help="Path to cached volumes")
     parser.add_argument("--output", default="umap.png", help="Output image path")
     parser.add_argument("--crops", default=1, type=int,
                         help="Crops per volume (1 is usually enough for UMAP)")

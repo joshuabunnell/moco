@@ -15,6 +15,12 @@
 # on its own. A hand-extracted JDK kept in scratch rotted exactly this way.
 : "${TOOLS_DIR:=$PROJECT_DIR/tools}"
 
+# sbatch copies the submitting shell's environment. If that shell (or a parent job
+# that resubmits, like prep_array.sh) had the env active, `source activate` treats
+# it as already active and skips putting it on PATH, so the job runs mamba's bare
+# python and fails on the first import.
+unset CONDA_SHLVL CONDA_PREFIX CONDA_DEFAULT_ENV
+
 : "${DATA_ROOT:=/scratch/$USER/moco}"
 : "${RAW_DIR:=$DATA_ROOT/raw}"
 : "${TENSOR_DIR:=$DATA_ROOT/tensors}"
@@ -25,8 +31,8 @@
 
 # Every job's #SBATCH -o/-e points here (/scratch/%u/moco/logs). SLURM won't create
 # the dir and evaluates the redirect before this script runs, so make it eagerly:
-# this covers every job after the first on a fresh scratch (see CLAUDE.md Rebuild
-# for the one-time bootstrap mkdir).
+# this covers every job after the first on a fresh scratch (see README "Reproducing
+# the data" for the one-time bootstrap mkdir).
 mkdir -p "$LOG_DIR"
 
 : "${RAW_ACRIN:=$RAW_DIR/CT COLONOGRAPHY}"

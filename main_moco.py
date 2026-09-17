@@ -2,7 +2,7 @@
 """MoCo v2 self-supervised pretraining on cached CT volume tensors.
 
 Entry point for contrastive pretraining using Momentum Contrast (MoCo v2).
-Loads preprocessed .pt tensors via ``CTMoCoDataset``, trains a ResNet-50
+Loads cached HU volumes via ``CTMoCoDataset``, trains a ResNet-50
 backbone with a momentum-updated key encoder and a negative-sample queue,
 and saves periodic checkpoints.
 
@@ -40,7 +40,7 @@ import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.models as models
 import moco.builder as builder
-from moco.ct_dataset import CTMoCoDataset
+from moco.ct_dataset import CTMoCoDataset, seed_worker_transforms
 
 model_names = sorted(
     name
@@ -341,7 +341,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
 
-    # Data loading code — cached .pt tensors live directly under args.data,
+    # Data loading code — cached volumes live directly under args.data,
     # not in a train/ subdirectory (no labels for self-supervised pretraining)
     train_dataset = CTMoCoDataset(args.data, crops_per_volume=args.crops_per_volume)
 
@@ -358,6 +358,7 @@ def main_worker(gpu, ngpus_per_node, args):
         pin_memory=True,
         sampler=train_sampler,
         drop_last=True,
+        worker_init_fn=seed_worker_transforms,
     )
 
     for epoch in range(args.start_epoch, args.epochs):

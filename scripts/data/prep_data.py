@@ -1,8 +1,10 @@
-"""Preprocess DICOM CT series into cached .pt tensors for MoCo training.
+"""Preprocess DICOM CT series into cached HU volumes for MoCo training.
 
-Walks one or more input directories containing DICOM series, applies medical
-image transforms (reorientation, resampling, windowing), and saves each
-processed volume as a PyTorch tensor.  Supports two execution modes:
+Walks one or more input directories containing DICOM series, reorients to RAS,
+resamples to 1 mm isotropic, and saves each volume as an int16 ``.npy`` array of
+raw Hounsfield Units in ``(z, y, x)`` order.  No intensity window is applied
+here: windowing is a training-time choice (see ``moco.ct_dataset``), so changing
+it never requires re-running this script.  Supports two execution modes:
 
 Sequential (single machine):
     python scripts/data/prep_data.py \\
@@ -33,9 +35,8 @@ import sys
 import time
 from pathlib import Path
 
-import torch
+import numpy as np
 from monai.transforms.compose import Compose
-from monai.transforms.intensity.dictionary import ScaleIntensityRanged
 from monai.transforms.io.dictionary import LoadImaged
 from monai.transforms.spatial.dictionary import Orientationd, Spacingd
 from monai.transforms.utility.dictionary import EnsureChannelFirstd
@@ -57,69 +58,65 @@ TRANSFORMS = Compose(
         # thickness (commonly 1-3 mm) and in-plane resolution; resampling
         # normalizes these differences so the model sees uniform geometry.
         Spacingd(keys=["image"], pixdim=(1.0, 1.0, 1.0), mode="bilinear"),
-
-        # Soft-tissue HU window: [-150, +250] isolates colon wall, mesenteric
-        # fat, and polyp tissue while excluding bone (>400 HU) and air
-        # (<-500 HU).  Values are rescaled to [0, 1] for network input.
-        ScaleIntensityRanged(
-            keys=["image"],
-            a_min=-150,
-            a_max=250,
-            b_min=0.0,
-            b_max=1.0,
-            clip=True,
-        ),
     ]
 )
 
 # Default minimum slices to consider a directory a valid DICOM series
 DEFAULT_MIN_SLICES = 10
 
-# TCIA ACRIN 6664 patient IDs follow this OID pattern
-_TCIA_UID_RE = re.compile(r"1\.3\.6\.1\.4\.1\.9328\.50\.4\.\d+")
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 def extract_patient_id(series_dir, input_root):
-    """Extract the TCIA patient ID from a DICOM series path.
+    """Return the TCIA Subject ID of a series: its first directory under *input_root*.
 
-    Walks the path components between *input_root* and *series_dir* looking
-    for the TCIA OID pattern (``1.3.6.1.4.1.9328.50.4.XXXX``).  Falls back
-    to an MD5 hash if no recognisable ID is found (e.g., non-TCIA data).
+    TCIA downloads are laid out ``<collection>/<subject>/<study>/<series>``.  The
+    subject directory is the ID for every naming scheme TCIA uses
+    (``1.3.6.1.4.1.9328.50.4.0001``, ``CTC-1038654821``,
+    ``Pediatric-CT-SEG-00DCF4D6``).  An earlier version matched only the first of
+    those by regex and hashed the rest, which split each of the 40 ``CTC-``
+    patients into one fake patient per series and silently dropped all 40 of
+    them (all labelled) from the train/val/test splits.
+    """
+    rel = Path(series_dir).relative_to(input_root)
+    if len(rel.parts) < 2:
+        raise ValueError("%s is not nested under a subject directory of %s"
+                         % (series_dir, input_root))
+    return rel.parts[0]
 
-    Args:
-        series_dir: Full path to the DICOM series directory.
-        input_root: Top-level input directory that was passed to the script.
+
+def series_filename(patient_id, series_dir, input_root):
+    """Build a cache filename that is unique per series within a patient.
+
+    Patients have several series (supine, prone, alternate reconstructions), so a
+    short hash disambiguates them.  The hash is of the path *relative to*
+    *input_root*, so filenames survive moving or re-downloading ``raw/``; the old
+    absolute-path hash renamed every file whenever the scratch layout changed.
 
     Returns:
-        A patient-identifiable string suitable for use in filenames.
+        String like ``1.3.6.1.4.1.9328.50.4.0007_a3b2.npy``.
     """
-    try:
-        rel = Path(series_dir).relative_to(input_root)
-    except ValueError:
-        rel = Path(series_dir)
-
-    for part in rel.parts:
-        if _TCIA_UID_RE.fullmatch(part):
-            return part
-
-    # Fallback: use MD5 (handles non-TCIA datasets like Pediatric-CT-SEG)
-    return hashlib.md5(str(series_dir).encode()).hexdigest()
+    rel = Path(series_dir).relative_to(input_root).as_posix()
+    short_hash = hashlib.md5(rel.encode()).hexdigest()[:4]
+    return f"{patient_id}_{short_hash}.npy"
 
 
-def series_filename(patient_id, series_dir):
-    """Build a .pt filename that is unique per series within a patient.
+def save_volume(image, out_path):
+    """Write a MONAI ``(1, x, y, z)`` float volume as int16 HU in ``(z, y, x)`` order.
 
-    Patients may have multiple series (e.g., supine + prone).  We append a
-    short hash of the series path to disambiguate.
-
-    Returns:
-        String like ``1.3.6.1.4.1.9328.50.4.0007_a3b2.pt``.
+    ``(z, y, x)`` makes an axial slab one contiguous run of bytes, so a memory-mapped
+    reader pulls a 3-slice crop without touching the rest of the volume.  The file
+    is written under a temporary name and renamed, because the skip-if-exists
+    check would otherwise trust a half-written file left by a timed-out task.
     """
-    short_hash = hashlib.md5(str(series_dir).encode()).hexdigest()[:4]
-    return f"{patient_id}_{short_hash}.pt"
+    arr = np.asarray(image)[0].transpose(2, 1, 0)
+    info = np.iinfo(np.int16)
+    arr = np.clip(np.rint(arr), info.min, info.max).astype(np.int16)
+    # The temp name must not end in .npy, or a reader globbing the cache picks it up.
+    tmp_path = out_path + ".partial"
+    with open(tmp_path, "wb") as fh:
+        np.save(fh, arr)
+    os.replace(tmp_path, out_path)
 
 
 def write_manifest(manifest_path, rows):
@@ -163,7 +160,7 @@ def find_series_dirs(root, min_slices):
 # Main
 # ---------------------------------------------------------------------------
 def preprocess(input_dir, cache_dir, min_slices):
-    """Process all series in *input_dir* sequentially and cache as .pt files.
+    """Process all series in *input_dir* sequentially and cache as ``.npy`` volumes.
 
     Saves each volume with a patient-identifiable filename and writes a
     manifest CSV (``manifest.csv``) in the cache directory mapping each
@@ -171,7 +168,7 @@ def preprocess(input_dir, cache_dir, min_slices):
 
     Args:
         input_dir: Directory containing DICOM series subdirectories.
-        cache_dir: Output directory for cached .pt tensors.
+        cache_dir: Output directory for cached volumes.
         min_slices: Minimum DICOM slices to consider a valid series.
     """
     os.makedirs(cache_dir, exist_ok=True)
@@ -191,7 +188,7 @@ def preprocess(input_dir, cache_dir, min_slices):
 
     for i, series_dir in enumerate(series):
         patient_id = extract_patient_id(series_dir, input_dir)
-        fname = series_filename(patient_id, series_dir)
+        fname = series_filename(patient_id, series_dir, input_dir)
         out_path = os.path.join(cache_dir, fname)
 
         # Already cached — still record in manifest for completeness
@@ -203,7 +200,7 @@ def preprocess(input_dir, cache_dir, min_slices):
         t0 = time.time()
         try:
             data = TRANSFORMS({"image": str(series_dir)})
-            torch.save(data["image"], out_path)
+            save_volume(data["image"], out_path)
             elapsed = time.time() - t0
             saved += 1
             manifest_rows.append([fname, patient_id, str(series_dir)])
@@ -298,17 +295,10 @@ def process_one(index, manifest_path):
         )
         sys.exit(1)
 
-    parts = lines[index].split("\t")
-    if len(parts) == 3:
-        out_dir, input_root, series_path = parts
-    else:
-        # Backward compat with old 2-column discover manifests
-        out_dir, series_path = parts[0], parts[-1]
-        input_root = out_dir
-
+    out_dir, input_root, series_path = lines[index].split("\t")
     series_dir = Path(series_path)
     patient_id = extract_patient_id(series_dir, input_root)
-    fname = series_filename(patient_id, series_dir)
+    fname = series_filename(patient_id, series_dir, input_root)
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, fname)
 
@@ -319,7 +309,7 @@ def process_one(index, manifest_path):
     t0 = time.time()
     try:
         data = TRANSFORMS({"image": str(series_dir)})
-        torch.save(data["image"], out_path)
+        save_volume(data["image"], out_path)
         # Append to the cache manifest so downstream scripts can map files
         cache_manifest = os.path.join(out_dir, "manifest.csv")
         write_manifest(cache_manifest, [[fname, patient_id, str(series_dir)]])
@@ -342,7 +332,7 @@ if __name__ == "__main__":
         "--cache-dir",
         default=None,
         metavar="DIR",
-        help="Output directory for cached .pt tensors",
+        help="Output directory for cached volumes",
     )
     parser.add_argument(
         "--min-slices",

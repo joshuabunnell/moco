@@ -1,6 +1,6 @@
 """Generate patient-level train/val/test splits for linear probing.
 
-Joins the cache manifest (mapping .pt filenames to patient IDs) with the
+Joins the cache manifest (mapping cached filenames to patient IDs) with the
 ACRIN metadata (mapping patient IDs to polyp categories) and produces
 per-split CSVs that ``CTLinClsDataset`` reads directly.
 
@@ -16,8 +16,8 @@ Class labels (configurable via ``--label-scheme``):
 Usage:
     python scripts/data/split_data.py \
         --manifest /scratch/$USER/moco/tensors/CT-COLONOGRAPHY/manifest.csv \
-        --metadata csv_metadata/acrin_combined.csv \
-        --output-dir csv_metadata \
+        --metadata metadata/csv_metadata/acrin_combined.csv \
+        --output-dir metadata/csv_metadata \
         --label-scheme three \
         --val-frac 0.15 --test-frac 0.15 \
         --seed 42
@@ -120,9 +120,9 @@ def main():
         description="Generate patient-level train/val/test splits")
     parser.add_argument("--manifest", required=True,
                         help="Path to cache manifest.csv from prep_data or reorganize_cache")
-    parser.add_argument("--metadata", default="csv_metadata/acrin_combined.csv",
+    parser.add_argument("--metadata", default="metadata/csv_metadata/acrin_combined.csv",
                         help="Path to combined ACRIN metadata CSV")
-    parser.add_argument("--output-dir", default="csv_metadata",
+    parser.add_argument("--output-dir", default="metadata/csv_metadata",
                         help="Directory for output split CSVs")
     parser.add_argument("--label-scheme", default="three",
                         choices=list(LABEL_SCHEMES.keys()),

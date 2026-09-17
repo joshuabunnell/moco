@@ -6,7 +6,7 @@ linear classification head (fc layer) on a labeled downstream dataset.
 This measures the quality of learned representations without fine-tuning
 the backbone weights.
 
-Uses the same CT data pipeline as pretraining: loads cached .pt volumes,
+Uses the same CT data pipeline as pretraining: loads cached HU volumes,
 extracts 2.5D crops, and applies HU-preserving augmentations.  Labels
 are provided via CSV files with ``filename`` and ``label`` columns.
 
@@ -46,7 +46,7 @@ import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.models as models
 
-from moco.ct_dataset import CTLinClsDataset
+from moco.ct_dataset import CTLinClsDataset, seed_worker_transforms
 
 model_names = sorted(
     name
@@ -56,7 +56,7 @@ model_names = sorted(
 
 parser = argparse.ArgumentParser(description="MoCo Linear Probing on CT Data")
 parser.add_argument("--data", required=True, metavar="DIR",
-                    help="path to cached .pt tensor directory")
+                    help="path to cached volume directory")
 parser.add_argument("--train-csv", required=True,
                     help="CSV with filename,label columns for training split")
 parser.add_argument("--val-csv", required=True,
@@ -290,7 +290,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
 
-    # CT data loading — no ImageNet normalization, HU values already in [0, 1]
+    # CT data loading — no ImageNet normalization, crops are windowed to [0, 1] at load
     train_dataset = CTLinClsDataset(
         args.data, args.train_csv,
         crops_per_volume=args.crops_per_volume, is_train=True,
@@ -312,6 +312,7 @@ def main_worker(gpu, ngpus_per_node, args):
         num_workers=args.workers,
         pin_memory=True,
         sampler=train_sampler,
+        worker_init_fn=seed_worker_transforms,
     )
 
     val_loader = torch.utils.data.DataLoader(
@@ -320,6 +321,7 @@ def main_worker(gpu, ngpus_per_node, args):
         shuffle=False,
         num_workers=args.workers,
         pin_memory=True,
+        worker_init_fn=seed_worker_transforms,
     )
 
     if args.evaluate:
