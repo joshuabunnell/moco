@@ -29,8 +29,8 @@ export PYTHONUNBUFFERED=1
 cd "${PROJECT_DIR}"
 mkdir -p "${EVAL_DIR}"
 
-# --workers matches -c above: the pass is I/O bound on ~245 MB volume reads, so
-# the win comes from having many reads outstanding against BeeGFS at once.
+# --workers matches -c above: the pass is I/O bound (per-file latency on scratch
+# dominates), so the win comes from having many reads outstanding at once.
 python scripts/eval/build_crop_bank.py \
     --tensor-dirs "${TENSOR_ACRIN}" "${TENSOR_PEDIATRIC}" \
     --output-dir "${EVAL_DIR}" \

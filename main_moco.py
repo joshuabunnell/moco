@@ -26,6 +26,7 @@ import math
 import os
 import random
 import shutil
+import subprocess
 import time
 import warnings
 
@@ -199,6 +200,7 @@ parser.add_argument(
 def main():
     """Parse arguments and launch training workers (one per GPU)."""
     args = parser.parse_args()
+    args.git_commit = git_commit()
 
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -359,6 +361,9 @@ def main_worker(gpu, ngpus_per_node, args):
         sampler=train_sampler,
         drop_last=True,
         worker_init_fn=seed_worker_transforms,
+        # Respawning 16 workers per rank cost ~80 s at every epoch start, about
+        # half of a staged epoch. Kept alive, each worker's RNG state carries on.
+        persistent_workers=args.workers > 0,
     )
 
     for epoch in range(args.start_epoch, args.epochs):
@@ -377,6 +382,10 @@ def main_worker(gpu, ngpus_per_node, args):
                     {
                         "epoch": epoch + 1,
                         "arch": args.arch,
+                        # Without these a checkpoint's recipe can only be guessed
+                        # from logs, which is how five of the first nine lost theirs.
+                        "args": vars(args),
+                        "git_commit": args.git_commit,
                         "state_dict": model.state_dict(),
                         "optimizer": optimizer.state_dict(),
                     },
@@ -434,6 +443,19 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         if i % args.print_freq == 0:
             progress.display(i)
+
+
+def git_commit():
+    """The checked-out commit, marked ``-dirty`` if tracked files differ from it."""
+    repo = os.path.dirname(os.path.abspath(__file__))
+    try:
+        sha = subprocess.check_output(["git", "-C", repo, "rev-parse", "HEAD"],
+                                      stderr=subprocess.DEVNULL, text=True).strip()
+        dirty = subprocess.call(["git", "-C", repo, "diff", "--quiet", "HEAD"],
+                                stderr=subprocess.DEVNULL) != 0
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    return sha + ("-dirty" if dirty else "")
 
 
 def save_checkpoint(state, is_best, filename="checkpoint.pth.tar"):

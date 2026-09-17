@@ -18,6 +18,9 @@
 # COLONOGRAPHY only; base = both collections, kept only as the "does out-of-domain
 # data help" ablation; pediatric = Pediatric-CT-SEG alone, which is out-of-domain
 # for the polyp task. Override: sbatch --export=DATASET=base jobs/train_moco.sh
+# RUN names the checkpoint subdir (default: DATASET). Give every ladder rung its
+# own: sbatch --export=RUN=e0 jobs/train_moco.sh. SAVE_FREQ=10 gives the epoch-20
+# checkpoint the kill gate is scored on.
 set -e
 PROJECT_DIR="${PROJECT_DIR:-$HOME/moco}"
 source "${PROJECT_DIR}/jobs/config.sh"
@@ -34,6 +37,16 @@ esac
 # 16384 queue. Shrink it for that run: sbatch --export=DATASET=pediatric,MOCO_K=4096 jobs/train_moco.sh
 MOCO_K="${MOCO_K:-16384}"
 EPOCHS="${EPOCHS:-200}"
+RUN="${RUN:-${DATASET}}"
+SAVE_FREQ="${SAVE_FREQ:-50}"
+OUT_DIR="${CKPT_ROOT}/${RUN}"
+
+# A fresh run never shares a directory: same-numbered checkpoints would overwrite,
+# and different-numbered ones would pass for one run. Resuming is resume_moco.sh.
+if compgen -G "${OUT_DIR}/checkpoint_*.pth.tar" > /dev/null; then
+    echo "ERROR: ${OUT_DIR} already holds checkpoints; pick a new RUN"
+    exit 1
+fi
 
 module load mamba/latest
 source activate "${CONDA_ENV}"
@@ -42,7 +55,18 @@ export PYTHONUNBUFFERED=1
 MASTER_PORT=$((10000 + RANDOM % 50000))
 
 cd "${PROJECT_DIR}"
-mkdir -p "${CKPT_ROOT}/${DATASET}" "${LOG_DIR}"
+mkdir -p "${OUT_DIR}" "${LOG_DIR}"
+
+source jobs/stage_data.sh
+trap 'rm -rf "${TMPDIR:-/tmp}/moco_stage"' EXIT
+DATA_DIR=$(stage_data "${DATA_DIR}")
+
+# The code that actually ran, captured at job start rather than submission, so
+# edits made while the job sat in the queue are recorded too.
+git rev-parse HEAD > "${OUT_DIR}/git_commit.txt"
+git diff HEAD > "${OUT_DIR}/git_diff.patch"
+git status --short > "${OUT_DIR}/git_status.txt"
+echo "RUN=${RUN} DATASET=${DATASET} SLURM_JOB_ID=${SLURM_JOB_ID}" > "${OUT_DIR}/job.txt"
 
 # main_moco.py uses mp.spawn internally — no torchrun needed, just --multiprocessing-distributed.
 python main_moco.py "${DATA_DIR}" \
@@ -58,10 +82,10 @@ python main_moco.py "${DATA_DIR}" \
     --moco-m 0.999 \
     --moco-t 0.07 \
     --workers 32 \
-    --save-freq 50 \
+    --save-freq "${SAVE_FREQ}" \
     --multiprocessing-distributed \
     --world-size 1 \
     --rank 0 \
     --dist-url "tcp://localhost:${MASTER_PORT}" \
-    --output-dir "${CKPT_ROOT}/${DATASET}" \
+    --output-dir "${OUT_DIR}" \
     --print-freq 5
