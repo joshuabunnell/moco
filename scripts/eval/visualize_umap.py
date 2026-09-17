@@ -28,7 +28,7 @@ import torchvision.models as models
 import umap
 from monai.transforms.croppad.dictionary import ResizeWithPadOrCropd
 
-from moco import list_volumes, load_volume, random_crop, to_resnet_format
+from moco import list_volumes, random_crop, to_resnet_format
 
 
 def build_encoder(checkpoint_path):
@@ -99,9 +99,8 @@ def extract_features(encoder, data_dir, crops_per_volume=1, device="cuda"):
 
     with torch.no_grad():
         for i, fpath in enumerate(files):
-            volume = load_volume(fpath)
             for _ in range(crops_per_volume):
-                crop = pad_crop({"image": random_crop(volume)})
+                crop = pad_crop({"image": random_crop(fpath)})
                 img = to_resnet_format(crop["image"]).unsqueeze(0).to(device)
                 feat = encoder(img).squeeze().cpu().numpy()
                 all_features.append(feat)

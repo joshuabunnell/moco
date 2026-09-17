@@ -109,9 +109,11 @@ def save_volume(image, out_path):
     is written under a temporary name and renamed, because the skip-if-exists
     check would otherwise trust a half-written file left by a timed-out task.
     """
-    arr = np.asarray(image)[0].transpose(2, 1, 0)
     info = np.iinfo(np.int16)
-    arr = np.clip(np.rint(arr), info.min, info.max).astype(np.int16)
+    arr = np.clip(np.rint(np.asarray(image)[0]), info.min, info.max).astype(np.int16)
+    # transpose only reverses strides, and np.save keeps that layout (it writes a
+    # Fortran-order file), which puts one z-slab's bytes across the whole file.
+    arr = np.ascontiguousarray(arr.transpose(2, 1, 0))
     # The temp name must not end in .npy, or a reader globbing the cache picks it up.
     tmp_path = out_path + ".partial"
     with open(tmp_path, "wb") as fh:
@@ -310,13 +312,42 @@ def process_one(index, manifest_path):
     try:
         data = TRANSFORMS({"image": str(series_dir)})
         save_volume(data["image"], out_path)
-        # Append to the cache manifest so downstream scripts can map files
-        cache_manifest = os.path.join(out_dir, "manifest.csv")
-        write_manifest(cache_manifest, [[fname, patient_id, str(series_dir)]])
         print("Saved %s (%.1fs)" % (fname, time.time() - t0))
     except Exception as exc:
         print("FAILED %s -- %s" % (series_dir, exc), file=sys.stderr)
         sys.exit(2)  # non-zero so SLURM marks this task as FAILED
+
+
+def finalize(manifest_path):
+    """Phase 3: write each cache dir's ``manifest.csv`` from the volumes that exist.
+
+    Array tasks do not append to it themselves: thousands of tasks appending to
+    one file on the shared filesystem lost rows (1743 rows for 1744 volumes in
+    the 2026-09 rebuild). Built once here, it lists exactly the series that
+    succeeded, and rerunning after a partial retry brings it up to date.
+    """
+    with open(manifest_path) as f:
+        lines = [line.rstrip("\n").split("\t") for line in f if line.strip()]
+
+    rows_by_dir = {}
+    missing = 0
+    for out_dir, input_root, series_path in lines:
+        patient_id = extract_patient_id(series_path, input_root)
+        fname = series_filename(patient_id, series_path, input_root)
+        rows = rows_by_dir.setdefault(out_dir, [])
+        if os.path.exists(os.path.join(out_dir, fname)):
+            rows.append([fname, patient_id, series_path])
+        else:
+            missing += 1
+            print("not cached: %s" % series_path)
+
+    for out_dir, rows in rows_by_dir.items():
+        path = os.path.join(out_dir, "manifest.csv")
+        if os.path.exists(path):
+            os.remove(path)
+        write_manifest(path, rows)
+        print("Wrote %d rows to %s" % (len(rows), path))
+    print("%d of %d discovered series are not cached" % (missing, len(lines)))
 
 
 if __name__ == "__main__":
@@ -353,6 +384,11 @@ if __name__ == "__main__":
         help="Phase 2: process series at index N from the manifest (set by SLURM_ARRAY_TASK_ID)",
     )
     parser.add_argument(
+        "--finalize",
+        action="store_true",
+        help="Phase 3: write each cache dir's manifest.csv from the volumes present",
+    )
+    parser.add_argument(
         "--manifest",
         default=None,
         help="Path to the series manifest file (default: <cache-dir>/series_manifest.txt)",
@@ -373,6 +409,10 @@ if __name__ == "__main__":
         if args.manifest is None:
             parser.error("--process-index requires --manifest (or --cache-dir)")
         process_one(args.process_index, args.manifest)
+    elif args.finalize:
+        if args.manifest is None:
+            parser.error("--finalize requires --manifest (or --cache-dir)")
+        finalize(args.manifest)
     else:
         # Sequential mode
         if not args.input_dirs or not args.cache_dir:

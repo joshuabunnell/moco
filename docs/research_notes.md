@@ -92,19 +92,50 @@ it; the one-time `mkdir` of the logs dir moved into README "Reproducing the data
    should be about 250 GB. The first attempt (63439440) failed on `import numpy`:
    the array inherited the discovery job's active conda env, and `source activate`
    skipped an env it thought was active. Fixed for every job in `config.sh`.
-3. In flight: full run, discovery job 63439876 (resubmits itself as the 2105-task
-   array). Tasks skip finished series, so a rerun picks up any failures.
-   Two tasks fail deterministically and are correctly excluded: series 7 and 10
-   of `CTC-3174825007` (51 and 54 slices), the same two the legacy cache lacked.
-   Each mixes slices of different in-plane spacing (0.9375 mm with 0.879 / 0.850
-   mm), so they are not one coherent volume and `Orientationd` rejects them.
-   That accounts for 2 of the 26 series the legacy cache was missing.
-4. Verify: file count 1744 + 359, manifest rows match files, one ID per subject.
+3. First full run (array 63439967, 2026-09-16): 2103 of 2105 series cached in
+   about 30 min, 238 GB. Two tasks fail deterministically and are correctly
+   excluded: series 7 and 10 of `CTC-3174825007` (51 and 54 slices), the same two
+   the legacy cache lacked. Each mixes slices of different in-plane spacing
+   (0.9375 mm with 0.879 / 0.850 mm), so they are not one coherent volume and
+   `Orientationd` rejects them. That accounts for 2 of the 26 series the legacy
+   cache was missing.
+   Verification then caught two defects, and that output was deleted:
+   - **Volumes were written in Fortran order.** `transpose` only reverses
+     strides, `astype` keeps the layout and `np.save` records it, so on disk a
+     3-slice z-slab was spread through the whole file. A crop took 0.9-1.3 s
+     instead of ~2 ms, no better than the `.pt` cache. The synthetic round-trip
+     test checked values and orientation but not byte layout. Fixed with
+     `np.ascontiguousarray` in `save_volume`, and `load_volume` now refuses a
+     non-C-ordered file.
+   - **`manifest.csv` lost a row** (1743 rows, 1744 volumes): concurrent appends
+     from the array on the shared filesystem. Tasks no longer append; a final
+     `FINALIZE=1` run, queued by discovery with `afterany` on the array, writes
+     each manifest once from the volumes present.
+   Also noted, not defects: patient `0766` has two short partial series (13 and
+   35 slices after resampling), present in the legacy cache too; 94 Pediatric
+   volumes are under 224 px in-plane and get padded, as before.
+   Second full run (array 63445814, finalize 63445815, 2026-09-16): 2103 of
+   2105 cached, the same two failures, finalize ran by itself.
+4. Done 2026-09-16, verified: 1744 ACRIN + 359 Pediatric volumes, every one
+   int16, 3D and C-ordered; each `manifest.csv` matches its files exactly with no
+   duplicates; 825/825 and 359/359 subjects, every filename prefixed by its
+   subject ID. 238 GB (legacy 469 GB).
+   **Read speed, measured from the login node on cold files:** opening a file
+   costs ~29 ms and a 1 MB read ~25 ms on scratch, so latency, not bytes,
+   is the floor. A crop through a memory map took ~105 ms median (one network
+   round trip per page fault), so `random_crop` now reads the crop's byte range
+   in one seek and read: ~56 ms median, 95 ms p90, identical output (checked on
+   8 real volumes). Augmenting both views adds ~25 ms. Estimate at 32 workers:
+   256 x ~90 ms / 32 = **~0.7 s per batch against 5.4 s before, about 7x, not
+   the ~300x predicted** from byte counts alone. That puts a 200-epoch run near
+   5 h rather than 2 h. E0's log reports `Data` time per iteration, which is the
+   real measurement; if it still dominates, raise `--workers` (the work is I/O
+   wait, not CPU).
 5. Re-split labels (`split_data.py`), now with all 345 labelled patients (the
    two contradictory TCIA labels are already resolved, see Known issues).
 6. Rebuild the crop bank from the new cache and re-score P0 random / ImageNet /
-   MoCo on it (protocol rule 4). The P0 numbers will move slightly: +26 series,
-   and HU rounding in the new cache.
+   MoCo on it (protocol rule 4). The P0 numbers will move slightly: +24 ACRIN and +5
+   Pediatric series, and HU rounding in the new cache.
 7. Delete `tensors_pt_legacy/` once 4-6 check out.
 
 ### B. Experiments (`experiments.md`)

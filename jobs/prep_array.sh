@@ -1,8 +1,9 @@
 #!/bin/bash
 # Preprocess every raw DICOM series into the HU volume cache, one series per task.
 # Submit once with no array: that run discovers the series, writes the manifest,
-# and resubmits this script as an array sized to the count. The resources below
-# are sized for one series, and the discovery run fits inside them too.
+# resubmits this script as an array sized to the count, and queues a final run
+# (FINALIZE=1) that writes each manifest.csv once the array ends. The resources
+# below are sized for one series; the discovery and final runs fit inside them.
 # Override the range to smoke-test a few series first: sbatch --export=ALL,ARRAY=0-4 jobs/prep_array.sh
 #SBATCH -N 1
 #SBATCH -c 4
@@ -28,7 +29,7 @@ cd "${PROJECT_DIR}"
 
 MANIFEST="${TENSOR_DIR}/series_manifest.txt"
 
-if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
+if [ -z "${SLURM_ARRAY_TASK_ID}" ] && [ -z "${FINALIZE}" ]; then
     # Old .pt caches used a different naming scheme; mixing the two in one
     # directory would give every series two files and two manifest rows.
     if compgen -G "${TENSOR_DIR}/*/*.pt" > /dev/null; then
@@ -49,7 +50,12 @@ if [ -z "${SLURM_ARRAY_TASK_ID}" ]; then
 
     ARRAY="${ARRAY:-0-$((TOTAL - 1))}"
     echo "Submitting array ${ARRAY} over ${TOTAL} series..."
-    sbatch --array="${ARRAY}" jobs/prep_array.sh
+    ARRAY_JOB=$(sbatch --parsable --array="${ARRAY}" jobs/prep_array.sh)
+    # afterany, not afterok: a few series always fail, and the manifest should
+    # still list every one that succeeded.
+    sbatch --dependency=afterany:"${ARRAY_JOB}" --export=ALL,FINALIZE=1 jobs/prep_array.sh
+elif [ -n "${FINALIZE}" ]; then
+    python scripts/data/prep_data.py --finalize --manifest "${MANIFEST}"
 else
     python scripts/data/prep_data.py \
         --process-index "${SLURM_ARRAY_TASK_ID}" \

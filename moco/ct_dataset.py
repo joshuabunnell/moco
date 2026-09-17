@@ -26,7 +26,7 @@ from monai.transforms.transform import Randomizable
 from monai.transforms.utility.dictionary import Lambdad
 from torch.utils.data import Dataset, get_worker_info
 
-from moco import list_volumes, load_volume, random_crop, to_resnet_format
+from moco import list_volumes, random_crop, to_resnet_format
 
 
 def seed_worker_transforms(worker_id):
@@ -97,8 +97,7 @@ class CTMoCoDataset(Dataset):
             Tuple of ([view_q, view_k], 0) where each view is a (3, 224, 224)
             tensor and 0 is a dummy label (MoCo is self-supervised).
         """
-        volume = load_volume(self.files[idx % len(self.files)])
-        base_crop = {"image": random_crop(volume)}
+        base_crop = {"image": random_crop(self.files[idx % len(self.files)])}
 
         # Deep copy so each view gets independent random augmentations.
         # MONAI dict transforms mutate in place — without copies, view_k
@@ -176,5 +175,5 @@ class CTLinClsDataset(Dataset):
         """
         file_idx = idx % len(self.entries)
         fpath, label = self.entries[file_idx]
-        crop = self.transform({"image": random_crop(load_volume(fpath))})["image"]
+        crop = self.transform({"image": random_crop(fpath)})["image"]
         return crop, label

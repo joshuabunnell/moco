@@ -43,12 +43,13 @@ Two public collections from [The Cancer Imaging Archive (TCIA)](https://www.canc
 
 | Collection | Role | Subjects | Series (downloaded) | Cached tensors |
 |---|---|---|---|---|
-| [CT COLONOGRAPHY (ACRIN 6664)](https://www.cancerimagingarchive.net/collection/ct-colonography/) | pretraining + labeled downstream | 825 | 3,451 | 1,746 |
+| [CT COLONOGRAPHY (ACRIN 6664)](https://www.cancerimagingarchive.net/collection/ct-colonography/) | pretraining + labeled downstream | 825 | 3,451 | 1,744 |
 | [Pediatric-CT-SEG](https://www.cancerimagingarchive.net/collection/pediatric-ct-seg/) | pretraining only (unlabeled) | 359 | 718 | 359 |
 
 Cached counts are lower than series counts because `prep_data.py` drops
-series with fewer than 10 slices. For ACRIN those are 1,705 scout and localizer
-series. For Pediatric-CT-SEG about half the catalogued
+series with fewer than 10 slices (for ACRIN, 1,705 scout and localizer series), and
+two ACRIN series that mix slices of different pixel spacing cannot form a volume.
+For Pediatric-CT-SEG about half the catalogued
 series are single-file RTSTRUCT organ segmentations rather than CT, so they fall
 out at the same threshold; those annotations are currently unused. Downstream **labels** come from the ACRIN 6664
 polyp-size spreadsheets in [`metadata/raw_metadata/`](metadata/raw_metadata/)
