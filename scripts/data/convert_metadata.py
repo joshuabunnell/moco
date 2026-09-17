@@ -9,49 +9,55 @@ sub-columns per lesion: location, size (mm), morphology, histology, and a
 per-lesion flag.  This script extracts the largest polyp size per patient
 for the combined output.
 
+TCIA ships these as legacy ``.xls``; the ``v1/`` copies are re-saved ``.xlsx``
+with byte-identical contents, so either directory reproduces the same CSVs.
+
 Usage:
     python scripts/data/convert_metadata.py \
-        --input-dir raw_metadata/ACRIN_6664 \
-        --output-dir csv_metadata
+        --input-dir metadata/raw_metadata/v2_2026-08-24 \
+        --output-dir metadata/csv_metadata
 """
 
 import argparse
 import csv
+import glob
 import os
 
-import openpyxl
+import pandas as pd
 
 
-def read_no_polyp(xlsx_path):
+def load_rows(input_dir, stem):
+    """Yield the data rows of *stem* as tuples, whatever Excel format it is in."""
+    matches = glob.glob(os.path.join(input_dir, stem + ".xls")) + \
+        glob.glob(os.path.join(input_dir, stem + ".xlsx"))
+    if not matches:
+        raise FileNotFoundError(os.path.join(input_dir, stem + ".xls[x]"))
+    frame = pd.read_excel(matches[0], header=0).dropna(how="all")
+    return [tuple(None if pd.isna(v) else v for v in row)
+            for row in frame.itertuples(index=False, name=None)]
+
+
+def read_no_polyp(rows):
     """Parse the no-polyp-found file.  Single column: TCIA Patient ID."""
-    wb = openpyxl.load_workbook(xlsx_path, read_only=True)
-    ws = wb.active
     patients = []
-    for i, row in enumerate(ws.iter_rows(values_only=True)):
-        if i == 0:
-            continue  # header
+    for row in rows:
         pid = row[0]
         if pid:
             patients.append({"patient_id": str(pid).strip(), "max_polyp_mm": 0,
                              "category": "no_polyp"})
-    wb.close()
     return patients
 
 
-def read_lesion_file(xlsx_path, category):
+def read_lesion_file(rows, category):
     """Parse a lesion file (6-9mm or >=10mm).
 
     Each row is a patient.  Lesion sub-columns repeat in groups of 5:
     [location, size_mm, morphology, histology, flag].  We extract the
     max polyp size across all lesions for each patient.
     """
-    wb = openpyxl.load_workbook(xlsx_path, read_only=True)
-    ws = wb.active
     patients = []
 
-    for i, row in enumerate(ws.iter_rows(values_only=True)):
-        if i == 0:
-            continue  # header
+    for row in rows:
         pid = row[0]
         if not pid:
             continue
@@ -71,15 +77,14 @@ def read_lesion_file(xlsx_path, category):
         patients.append({"patient_id": str(pid).strip(),
                          "max_polyp_mm": max_size,
                          "category": category})
-    wb.close()
     return patients
 
 
 def main():
     parser = argparse.ArgumentParser(description="Convert ACRIN XLSX metadata to CSV")
-    parser.add_argument("--input-dir", default="raw_metadata/ACRIN_6664",
-                        help="Directory containing XLSX files")
-    parser.add_argument("--output-dir", default="csv_metadata",
+    parser.add_argument("--input-dir", default="metadata/raw_metadata/v2_2026-08-24",
+                        help="Directory containing the TCIA polyp spreadsheets")
+    parser.add_argument("--output-dir", default="metadata/csv_metadata",
                         help="Output directory for CSVs")
     args = parser.parse_args()
 
@@ -87,11 +92,11 @@ def main():
 
     # Parse each Excel file
     no_polyp = read_no_polyp(
-        os.path.join(args.input_dir, "TCIA-CTC-no-polyp-found.xlsx"))
+        load_rows(args.input_dir, "TCIA-CTC-no-polyp-found"))
     medium = read_lesion_file(
-        os.path.join(args.input_dir, "TCIA-CTC-6-to-9-mm-polyps.xlsx"), "medium_6_9mm")
+        load_rows(args.input_dir, "TCIA-CTC-6-to-9-mm-polyps"), "medium_6_9mm")
     large = read_lesion_file(
-        os.path.join(args.input_dir, "TCIA-CTC-large-10-mm-polyps.xlsx"), "large_10mm_plus")
+        load_rows(args.input_dir, "TCIA-CTC-large-10-mm-polyps"), "large_10mm_plus")
 
     # Write per-category CSVs
     fieldnames = ["patient_id", "max_polyp_mm", "category"]
@@ -105,8 +110,17 @@ def main():
             writer.writerows(data)
         print(f"Wrote {len(data)} rows to {path}")
 
-    # Write combined CSV with all patients
-    combined = no_polyp + medium + large
+    # TCIA lists two patients in two files: 0011 as no-polyp and 6-9 mm (9.0 mm),
+    # 0216 as 6-9 mm (10.0 mm) and large (0 mm). Keep the larger finding for each,
+    # so no patient carries two labels into the splits. The per-category CSVs
+    # above stay as TCIA published them.
+    severity = {"no_polyp": 0, "medium_6_9mm": 1, "large_10mm_plus": 2}
+    by_patient = {}
+    for row in no_polyp + medium + large:
+        kept = by_patient.setdefault(row["patient_id"], dict(row))
+        kept["category"] = max(kept["category"], row["category"], key=severity.get)
+        kept["max_polyp_mm"] = max(kept["max_polyp_mm"], row["max_polyp_mm"])
+    combined = list(by_patient.values())
     combined_path = os.path.join(args.output_dir, "acrin_combined.csv")
     with open(combined_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -115,8 +129,9 @@ def main():
     print(f"Wrote {len(combined)} combined rows to {combined_path}")
 
     # Summary
-    print(f"\nSummary: {len(no_polyp)} no-polyp, {len(medium)} medium (6-9mm), "
-          f"{len(large)} large (>=10mm) — {len(combined)} total")
+    counts = {c: sum(r["category"] == c for r in combined) for c in severity}
+    print(f"\nSummary: {counts['no_polyp']} no-polyp, {counts['medium_6_9mm']} medium "
+          f"(6-9mm), {counts['large_10mm_plus']} large (>=10mm), {len(combined)} patients")
 
 
 if __name__ == "__main__":
