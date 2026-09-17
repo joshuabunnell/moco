@@ -131,20 +131,68 @@ it; the one-time `mkdir` of the logs dir moved into README "Reproducing the data
    5 h rather than 2 h. E0's log reports `Data` time per iteration, which is the
    real measurement; if it still dominates, raise `--workers` (the work is I/O
    wait, not CPU).
-5. Re-split labels (`split_data.py`), now with all 345 labelled patients (the
-   two contradictory TCIA labels are already resolved, see Known issues).
-6. Rebuild the crop bank from the new cache and re-score P0 random / ImageNet /
-   MoCo on it (protocol rule 4). The P0 numbers will move slightly: +24 ACRIN and +5
-   Pediatric series, and HU rounding in the new cache.
-7. Delete `tensors_pt_legacy/` once 4-6 check out.
+5. Done 2026-09-16: labels re-split (`split_data.py`, seed 42, three-class,
+   15/15). All 345 labelled patients match the cache (302 before). Train 243 /
+   val 51 / test 51 patients (516 / 108 / 108 series), each 170-36-36 no-polyp,
+   48-10-10 medium, 25-5-5 large; patient-disjoint, verified. Adding 43 patients
+   reshuffled the stratified order, so this is a new split, not an extension:
+   only 177 of the old 302 kept their side. **From here the test split is frozen**:
+   nothing reads `labels_test.csv` until Phase 3's final numbers.
+6. Done 2026-09-16: crop bank rebuilt (job 63459066, 7.3 min, 2103 volumes, 0
+   failed, 33,648 crops) and P0 re-scored (job 63459067) as **P0r** in
+   `experiments.md` and the ledger. Nothing moved beyond its standard error
+   (ImageNet cross-position 0.494, MoCo 0.315), so the cache rebuild is neutral.
+   The Phase 0 bank and JSONs are in `eval/p0_pt_legacy/`.
+7. **Keep `tensors_pt_legacy/`** (469 GB, the old `.pt` cache). Decided
+   2026-09-17: scratch has room and it is the only copy of what the pre-2026-09
+   runs actually read.
 
 ### B. Experiments (`experiments.md`)
 
 - **Decided (2026-09-16):** E0-E5 as pre-registered. E0 also carries the
   worker-seeding fix (an implementation bug, not a recipe choice; recorded in its
   diff). E1 is trained twice with different seeds, to measure retrain noise.
-- **Before E0:** save args into checkpoints, fix the `majority_floor` print, add
-  the contrast/prep confounder probe.
+- **Before E0, done 2026-09-16 (tested end to end on a stub encoder):**
+  - `main_moco.py` saves `args` and `git_commit` (with `-dirty` when the tree
+    differs) in every checkpoint.
+  - `eval_repr.py` prints balanced accuracy beside `chance_balanced` (1 /
+    n_classes); `majority_floor` stays in the JSON for plain accuracy.
+  - `eval_repr.py` adds `knn_prep` (3 prep protocols; the single Magnesium
+    citrate subject is dropped, classes under 10 patients are) and
+    `knn_contrast` (iodinated contrast as directed, yes/no). Same held-out
+    patient half as the collection probe. The training side is class-balanced
+    by subsampling: unbalanced, the 692/60 contrast split made k=15 k-NN vote
+    "Yes" for every query and score exactly 0.500 regardless of features.
+    Read both as confounders: higher means the encoder separates prep/tagging.
+    `log_experiment.py` records both.
+- **E0, first attempt (job 63459386), cancelled** after 10 epochs / 72 min for
+  speed only; its dir is kept as `checkpoints/e0_cancelled_unstaged/`. A 1-epoch
+  smoke test on a MIG slice (63459385) had passed first, including a checkpoint
+  carrying `args` and `git_commit`. `train_moco.sh` refuses a `RUN` dir that
+  already holds checkpoints and records `git_commit.txt`, `git_diff.patch` and
+  `git_status.txt` there at job start.
+- **Why it was slow: I/O, not compute.** Reading from BeeGFS ran ~4.2 s/iter at
+  first (~9.5 min/epoch), easing to ~7 min/epoch as caches warmed. On the node
+  workers sat at 20-50% CPU, several in `D`, one GPU at 0% waiting on the other
+  rank. The ~0.7 s/iter estimate from single-process reads did not survive 32
+  concurrent readers.
+- **Fixes (2026-09-17):**
+  - `jobs/stage_data.sh` copies the tensor dir to node-local SSD at job start
+    (229 GB in 456 s on sg038), falling back to scratch if there is no room.
+    Test job 63462339: 2.9 min/epoch staged.
+  - `persistent_workers=True` in `main_moco.py`: respawning workers cost ~80 s
+    at every epoch start, about half of a staged epoch.
+  **Confirmed on E0 (job 63465601, sg042):** staging 390 s, then ~0.69 s/iter
+  from epoch 1 (~1.6 min/epoch; epoch 0 is slower while page cache fills), so
+  200 epochs take ~5.3 h, against ~53 h for the original run. Data is still
+  ~0.3-0.5 s of each iter, so more is available, but not worth chasing now.
+- **E0 done 2026-09-17** (job 63465601, 4 h 50 m, 200 epochs, ~1.6 min/epoch).
+  Scored at epochs 20 and 200 (jobs 63529379 / 63529380); result and verdict in
+  `experiments.md`. Cross-position 0.356 against the parent's 0.315 and
+  ImageNet's 0.494. The epoch-20 `Acc@1` kill gate did not fire (0.4%, chance is
+  0.39%) although the run still saturated at 99.9%, so that gate moved to epoch
+  50; the alignment gate fired correctly at epoch 20.
+- **Next:** E1 (two independent crops), pre-registered below.
 - **Open:** E1's crop-overlap range, pre-registered before E1 runs.
 - **Phase 3 design** (the polyp claim, label-efficiency curves, where the linear
   probe comes in) is written up in `experiments.md`.

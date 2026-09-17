@@ -28,7 +28,8 @@ together can only say "something in here helped".
    [`experiment_results.csv`](experiment_results.csv) and prints the markdown
    row. Paste that row. Transcription is where comparisons rot.
 4. **Byte-identical input.** Every encoder is scored on the same crop bank
-   (`/scratch/$USER/moco/eval/bank.npy`, 33,184 crops from 2,074 series). If the
+   (`/scratch/$USER/moco/eval/bank.npy`, 33,648 crops from 2,103 series since the
+   2026-09-16 rebuild). If the
    bank is ever rebuilt, every prior run is re-scored against the new one or the
    comparison is void.
 5. **Record failures and kills in full.** A run that hit a kill gate at epoch 20
@@ -41,30 +42,37 @@ Stop a pretraining run early if either fires. Both mean the pretext task is too
 easy, which is the failure Phase 0 diagnosed, and neither needs the full run to
 detect:
 
-- `Acc@1` still above **95% at epoch 20**. Healthy contrastive training sits
-  around 60-85%.
-- Augmented-view cosine (`alignment_cos`) above **0.99**. The collapsed
-  checkpoint sits at 0.9973 against ImageNet's 0.9602.
+- `Acc@1` still above **95% at epoch 50**. Healthy contrastive training sits
+  around 60-85%. **Amended 2026-09-17 after E0**, which sat at 0.4% at epoch 20
+  (chance is 0.39%) and still reached 99.9%: with per-worker seeding the curve
+  now takes off between epochs 20 and 49, so the epoch-20 reading says nothing.
+  E0's numbers by epoch: 0.4 (20), 94.1 (49), 99.8 (99), 99.9 (199).
+- Augmented-view cosine (`alignment_cos`) above **0.99**, scored on the
+  epoch-20 checkpoint. The collapsed checkpoint sits at 0.9973 against
+  ImageNet's 0.9602. This one did fire on E0 at epoch 20 (0.9917) while the
+  accuracy gate was silent, so of the two it is the earlier signal.
 
 ### The bar
 
-**ImageNet cross-position retrieval top-1 = 0.493.** Label-free, ACRIN-only,
-n=601 queries, standard error about 0.02, so it resolves a 5-point change. Until
-a run beats that, there is no result. Chance is 0.0016.
+**ImageNet cross-position retrieval top-1 = 0.494** (P0r, the rebuilt bank; was
+0.493 on the P0 bank). Label-free, ACRIN-only, n=613 queries, standard error
+about 0.02, so it resolves a 5-point change. Until a run beats that, there is no
+result. Chance is 0.0016.
 
 Secondary, and not difficulty-matched to each other: `any_series` top-1 (same
-task over the full 1,720-series pool, where alternate reconstructions of one
+task over the full ACRIN series pool, where alternate reconstructions of one
 acquisition make it winnable by near-duplicate matching) and RankMe.
 
 `knn_polyp` is reported but **cannot discriminate encoders** — the validation
-split is 45 patients with 3 in the large class, so the metric's resolution is
-about 0.11 balanced accuracy against an observed encoder spread of 0.014. It is
+split was 45 patients with 3 in the large class (51 with 5 after the 2026-09-16
+re-split, which does not change the conclusion), so the metric's resolution is
+about 0.1 balanced accuracy against an observed encoder spread of under 0.03. It is
 logged for completeness until Phase 3 replaces it.
 
 ### How runs are measured, and how far to trust it
 
 **The procedure.** Training is finished and the encoder is frozen. It turns each
-of the 33,184 crops in the bank into a vector, and the 16 vectors from one
+of the 33,648 crops in the bank into a vector, and the 16 vectors from one
 series are averaged into one vector for that scan. Every model sees exactly the
 same crops.
 
@@ -145,6 +153,51 @@ Frozen encoders, no training. Establishes the "before" measurement.
   the queue as negatives. Suggestive at about 2 sigma given within-volume
   correlation, not established. **Pre-registered for E4.**
 
+## P0r — Phase 0 re-scored on the rebuilt cache (2026-09-16, job 63459067)
+
+Same three encoders, scored on a bank rebuilt from the raw-HU cache (protocol
+rule 4): 2,103 series and 33,648 crops (was 2,074 / 33,184), `knn_polyp` on the
+new split, and the two confounder probes added. **These rows are the baseline
+from here on.**
+
+| Run | cross_pos top1 | vs ImageNet | any_series top1 | RankMe | align cos | zpos MAE | polyp bal-acc |
+|---|---|---|---|---|---|---|---|
+| P0r:random | 0.023 | 0.05x | 0.052 | 20.5 | 0.9991 | 0.1041 | 0.333 |
+| P0r:imagenet | 0.494 | 1.00x | 0.290 | 666.9 | 0.9600 | 0.1098 | 0.349 |
+| P0r:moco:checkpoint_0199.pth.tar | 0.315 | 0.64x | 0.182 | 330.3 | 0.9973 | 0.1166 | 0.356 |
+
+Confounder probes (balanced accuracy, patient-disjoint halves, ~793 test series):
+
+| Encoder | `knn_prep` (chance 0.333) | `knn_contrast` (chance 0.500) |
+|---|---|---|
+| random | 0.427 | 0.572 |
+| imagenet | 0.527 | 0.538 |
+| moco 0199 | 0.452 | 0.541 |
+
+**Findings.**
+
+- **The rebuild changed nothing that matters.** Every anatomy number moved by
+  less than its standard error (cross-position 0.493 -> 0.494 and 0.318 ->
+  0.315; RankMe and alignment to the third digit). The raw-HU cache, the +29
+  series and HU rounding are neutral, so the P0 findings carry over intact and
+  E0 onward can be compared against P0r directly.
+- **Depth anomaly persists:** MoCo 0.1166 against random 0.1041 and ImageNet
+  0.1098. The E4 prediction was pre-registered as "below 0.108, the random-init
+  level"; on this bank the random-init level is 0.104. **Amended before E4
+  runs:** the threshold is the random-init level on the bank E4 is scored on,
+  0.1041. Recorded here rather than edited in place.
+- **Read the confounder probes against random init, not chance.** Random
+  features already score 0.427 on prep, because a random ResNet still encodes
+  the intensity histogram, and prep and tagging change the histogram. ImageNet
+  sits well above that (0.527) and MoCo barely (0.452), so ImageNet features
+  separate prep protocols more. That is not obviously bad: cleanly tagged stool
+  is real image content. It becomes a problem only if a run gains here while
+  cross-position stays flat.
+- **`knn_contrast` cannot rank these encoders.** The non-compliant class is
+  about 30 patients per half, so resolution is several points, and all three sit
+  within 0.035 of each other, with random highest. Keep logging it; watch only
+  for a large move.
+
 ---
 
 ## Phase 2 ladder (planned, ACRIN-only)
@@ -167,6 +220,47 @@ submission; results and verdicts are filled in afterwards.
 - **Prediction:** cross-position within about 0.03 of 0.318; alignment cosine
   still above 0.99; both kill gates fire, which is the expected and correct
   outcome for this rung.
+- **Run (pre-registered 2026-09-16, before submission):** 200 epochs, not killed
+  when the gates fire. E0 is the reference every rung is diffed against, so it
+  needs the same epoch count as they do; the gates are recorded for it, not
+  enforced. `RUN=e0 SAVE_FREQ=10`, so epoch 20 (`checkpoint_0019`) can be scored
+  for the alignment gate. Scored on the rebuilt bank against the re-scored P0.
+  Job 63465601. (A first submission, 63459386, was cancelled at epoch 10 for
+  loading speed only; see `research_notes.md` Status B.)
+
+### E0 — result (2026-09-17, job 63465601)
+
+200 epochs in 4 h 50 m on 2 A100s, against ~53 h for the parent.
+
+| Run | cross_pos top1 | vs ImageNet | any_series top1 | RankMe | align cos | zpos MAE | polyp bal-acc |
+|---|---|---|---|---|---|---|---|
+| E0:moco:checkpoint_0019.pth.tar | 0.077 | 0.16x | 0.070 | 455.8 | 0.9917 | 0.1458 | 0.368 |
+| E0:moco:checkpoint_0199.pth.tar | 0.356 | 0.72x | 0.205 | 309.0 | 0.9971 | 0.1277 | 0.339 |
+
+**Verdict: hypothesis held, prediction narrowly missed.** Predicted
+cross-position within 0.03 of the parent's 0.318; E0 landed at 0.356, which is
+0.041 above it, about 2.1 standard errors (SE 0.019 at n=613) before accounting
+for within-patient correlation among queries, which makes the effective margin
+smaller. Calling it a real but small gain, not neutrality, and not a fix: E0
+still reaches only 0.72x of ImageNet, and everything the parent was faulted for
+is intact. Alignment cosine 0.9971 (parent 0.9973), pretext accuracy 99.9%. The
+diff carried three changes at once (ACRIN-only, rebuilt cache, per-worker
+seeding), so the gain cannot be attributed to one; the most likely source is
+seeding, since the parent trained on ~40 distinct crop sets repeated every epoch.
+
+- **The epoch-20 accuracy gate failed as written** and has been amended to epoch
+  50 (see Kill gates). The alignment gate fired correctly at epoch 20.
+- **Depth regression got worse, not better:** 0.1277 against the parent's 0.1166
+  and random init's 0.1041. E0 is now the worst encoder measured on `knn_zpos`,
+  which strengthens rather than weakens the same-volume-negatives story E4 tests.
+- `knn_prep` fell to 0.413 from the parent's 0.452, below random init's 0.427:
+  no sign that the faster pipeline made the encoder more prep-sensitive.
+- The epoch-20 checkpoint is a useful midpoint: RankMe is *higher* there (455.8)
+  than at the end (309.0) while retrieval is far worse (0.077), so RankMe rises
+  early with feature spread and then falls as the pretext task collapses onto
+  its shortcut. Read it as a floor detector, not a quality score.
+
+---
 
 ### E1 — two independent crops
 
@@ -285,6 +379,9 @@ cannot work" in `research_notes.md`.
 ---
 
 ## Additions queued alongside the ladder
+
+All three below were implemented 2026-09-16, before E0 (details in
+`research_notes.md` Status B).
 
 - **Contrast/prep confounder probe** in `eval_repr.py`, from
   `metadata/csv_metadata/clinical_data.csv`. Three prep protocols split the
