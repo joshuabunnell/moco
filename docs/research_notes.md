@@ -192,7 +192,13 @@ it; the one-time `mkdir` of the logs dir moved into README "Reproducing the data
   ImageNet's 0.494. The epoch-20 `Acc@1` kill gate did not fire (0.4%, chance is
   0.39%) although the run still saturated at 99.9%, so that gate moved to epoch
   50; the alignment gate fired correctly at epoch 20.
-- **Next:** E1 (two independent crops), pre-registered below.
+- **E1 submitted 2026-09-17** (job 63530506, `RUN=e1 SAVE_FREQ=10
+  CROP_OVERLAP="0.3 0.7"`). Parameters and prediction pre-registered in
+  `experiments.md` before implementation. `random_crop_pair` reads both crops
+  from one span; checked against brute-force search on a synthetic volume.
+  Watch `Acc@1` at epoch 50 (gate) and alignment cosine on `checkpoint_0019`.
+- **Next after E1:** rerun it unchanged as `e1b` to measure retrain noise, then
+  E2 (scale jitter).
 - **Open:** E1's crop-overlap range, pre-registered before E1 runs.
 - **Phase 3 design** (the polyp claim, label-efficiency curves, where the linear
   probe comes in) is written up in `experiments.md`.
