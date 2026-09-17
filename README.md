@@ -7,20 +7,20 @@ The goal is to learn robust visual representations from two unlabeled CT dataset
 ## Pipeline
 
 ```
-DICOM files → [prep_data.py] → .pt tensors + manifest.csv
+DICOM files → [prep_data.py] → HU volumes (.npy) + manifest.csv
                                      ↓
 XLSX metadata → [convert_metadata.py] → acrin_combined.csv
                                      ↓
 manifest.csv + acrin_combined.csv → [split_data.py] → labels_{train,val,test}.csv
                                      ↓
-.pt tensors (unlabeled)   → [main_moco.py]   → pretrained encoder
-.pt tensors + label CSVs  → [main_lincls.py] → polyp classification
+HU volumes (unlabeled)    → [main_moco.py]   → pretrained encoder
+HU volumes + label CSVs   → [main_lincls.py] → polyp classification
 ```
 
 **Stages:**
 
-1. **Preprocessing** (`scripts/data/prep_data.py`) — DICOM series → RAS reorientation → 1 mm isotropic resampling → soft-tissue HU windowing [-150, +250] → cached `.pt` tensors with patient-identifiable filenames and `manifest.csv`.
-2. **Metadata** (`scripts/data/convert_metadata.py`) — ACRIN 6664 XLSX → clean CSVs mapping patient IDs to polyp size categories.
+1. **Preprocessing** (`scripts/data/prep_data.py`) — DICOM series → RAS reorientation → 1 mm isotropic resampling → int16 raw-HU `.npy` volumes in `(z, y, x)` order, named `<TCIA Subject ID>_<hash>.npy`, plus `manifest.csv`. No window is applied here; training reads crops through a memory map and windows them at load (`moco.HU_WINDOW`), so changing the window never needs a re-prep.
+2. **Metadata** (`scripts/data/convert_metadata.py`) — ACRIN 6664 polyp spreadsheets → clean CSVs mapping patient IDs to polyp size categories. `convert_clinical.py` decodes the separate clinical table the same way.
 3. **Splitting** (`scripts/data/split_data.py`) — Patient-level stratified train/val/test split joining the manifest with metadata. Outputs `labels_{train,val,test}.csv` for the linear probe.
 4. **MoCo v2 Pretraining** (`main_moco.py`) — ResNet-50 backbone with momentum contrast on 2.5D crops (224x224x3). Multi-GPU DDP required.
 5. **Linear Probing** (`main_lincls.py`) — Freeze pretrained backbone, train a linear head on labeled ACRIN data for 3-class polyp classification (no polyp / 6-9 mm / >=10 mm).
@@ -30,7 +30,7 @@ manifest.csv + acrin_combined.csv → [split_data.py] → labels_{train,val,test
 | Adaptation | Rationale |
 |---|---|
 | **No color jitter** | HU values encode physical tissue density — jitter destroys this signal |
-| **Soft-tissue HU window [-150, +250]** | Isolates colon wall, mesenteric fat, polyp tissue; excludes bone and air |
+| **Soft-tissue HU window [-150, +250], applied at load** | Isolates colon wall, mesenteric fat, polyp tissue; the cache keeps full HU so the window can change per run |
 | **1 mm isotropic resampling** | Normalizes variable slice thickness across scanners |
 | **RAS reorientation** | Consistent anatomical coordinates regardless of scanner manufacturer |
 | **2.5D crops (224x224x3)** | Three adjacent axial slices mapped to RGB channels for 2D ResNet compatibility |
@@ -43,15 +43,20 @@ Two public collections from [The Cancer Imaging Archive (TCIA)](https://www.canc
 
 | Collection | Role | Subjects | Series (downloaded) | Cached tensors |
 |---|---|---|---|---|
-| [CT COLONOGRAPHY (ACRIN 6664)](https://www.cancerimagingarchive.net/collection/ct-colonography/) | pretraining + labeled downstream | 825 | 3,451 | 1,720 |
-| [Pediatric-CT-SEG](https://www.cancerimagingarchive.net/collection/pediatric-ct-seg/) | pretraining only (unlabeled) | 359 | 718 | 354 |
+| [CT COLONOGRAPHY (ACRIN 6664)](https://www.cancerimagingarchive.net/collection/ct-colonography/) | pretraining + labeled downstream | 825 | 3,451 | 1,746 |
+| [Pediatric-CT-SEG](https://www.cancerimagingarchive.net/collection/pediatric-ct-seg/) | pretraining only (unlabeled) | 359 | 718 | 359 |
 
-Cached-tensor counts are lower than series counts because `prep_data.py` drops
-series with fewer than 10 slices. For Pediatric-CT-SEG about half the catalogued
+Cached counts are lower than series counts because `prep_data.py` drops
+series with fewer than 10 slices. For ACRIN those are 1,705 scout and localizer
+series. For Pediatric-CT-SEG about half the catalogued
 series are single-file RTSTRUCT organ segmentations rather than CT, so they fall
 out at the same threshold; those annotations are currently unused. Downstream **labels** come from the ACRIN 6664
 polyp-size spreadsheets in [`metadata/raw_metadata/`](metadata/raw_metadata/)
 (no-polyp / 6–9 mm / ≥10 mm), converted to the CSVs in `metadata/csv_metadata/`.
+Those cover 345 of the 825 imaged subjects. TCIA's Version 2 release (2026-08-24)
+adds a clinical table for 752 subjects (demographics, bowel prep, contrast
+compliance, family history) — no age and no diagnosis, so it is confounder and
+stratification material rather than a second label set.
 
 The exact download set is pinned by [`metadata/manifest.tcia`](metadata/manifest.tcia)
 (committed here so it survives a `/scratch` purge). TCIA data is de-identified and
@@ -74,8 +79,7 @@ conda activate moco_env
 ```
 
 > On ASU Sol: `module load mamba/latest && source activate moco_env`. Job scripts
-> that run Python do this for you. See [`CLAUDE.md`](CLAUDE.md) for canonical
-> paths and conventions.
+> that run Python do this for you. Every path lives in [`jobs/config.sh`](jobs/config.sh).
 
 ## Reproducing the data
 
@@ -84,17 +88,20 @@ entire dataset from TCIA. Everything is parameterized by `$USER` via
 [`jobs/config.sh`](jobs/config.sh), so these run unchanged for anyone in the group:
 
 ```bash
+# 0. One time only: SLURM writes each job's log here before the job can create it.
+mkdir -p /scratch/$USER/moco/logs
+
 # 1. Download raw DICOM from TCIA (uses metadata/manifest.tcia + NBIA retriever).
 #    Installs the retriever from its RPM on first run. ~549 GB, many hours.
 #    Resumable: it diffs the manifest against what is on disk, so rerun to continue.
 sbatch jobs/tcia_download.sh          # → /scratch/$USER/moco/raw/
 
-# 2. Preprocess DICOM → .pt tensors (discover, then a SLURM array over series).
+# 2. Preprocess DICOM → HU volumes (discovers series, then resubmits itself as an array).
 sbatch jobs/prep_array.sh             # → /scratch/$USER/moco/tensors/
 
 # 3. Build labels: XLSX → CSV, then patient-level train/val/test split.
 python scripts/data/convert_metadata.py \
-    --input-dir metadata/raw_metadata --output-dir metadata/csv_metadata
+    --input-dir metadata/raw_metadata/v2_2026-08-24 --output-dir metadata/csv_metadata
 python scripts/data/split_data.py \
     --manifest /scratch/$USER/moco/tensors/CT-COLONOGRAPHY/manifest.csv \
     --metadata metadata/csv_metadata/acrin_combined.csv \
@@ -150,18 +157,20 @@ Job scripts live in [`jobs/`](jobs/). Paths are centralized in `jobs/config.sh`
 ├── main_moco.py                          # MoCo v2 pretraining (DDP, multi-GPU)
 ├── main_lincls.py                        # Linear probing on labeled ACRIN data
 ├── moco/
-│   ├── __init__.py                       # Shared utils (to_resnet_format)
+│   ├── __init__.py                       # Shared utils: HU window, memmap volume loading, crops
 │   ├── builder.py                        # MoCo model (dual encoders, queue, InfoNCE)
 │   └── ct_dataset.py                     # CTMoCoDataset (contrastive) + CTLinClsDataset (labeled)
 ├── scripts/
 │   ├── pending_series.py                 # Diff manifest.tcia against disk → resumable download list
 │   ├── data/
-│   │   ├── prep_data.py                  # DICOM → .pt preprocessing + manifest
-│   │   ├── convert_metadata.py           # ACRIN XLSX → CSV metadata
+│   │   ├── prep_data.py                  # DICOM → HU volume cache + manifest
+│   │   ├── convert_metadata.py           # ACRIN polyp spreadsheets → CSV metadata
+│   │   ├── convert_clinical.py           # ACRIN clinical TSV + dictionary → decoded CSV
 │   │   └── split_data.py                 # Patient-level stratified train/val/test splits
 │   └── eval/
 │       ├── build_crop_bank.py            # Deterministic uint8 crop bank for encoder comparison
 │       ├── eval_repr.py                  # Frozen-encoder metric battery → JSON report
+│       ├── log_experiment.py             # Eval JSON → docs/experiment_results.csv + markdown row
 │       └── visualize_umap.py             # UMAP projection of backbone features
 ├── jobs/                                 # SLURM job scripts — the job source of truth
 │   ├── config.sh                         # Canonical $USER-derived paths (sourced by all)
@@ -178,13 +187,17 @@ Job scripts live in [`jobs/`](jobs/). Paths are centralized in `jobs/config.sh`
 ├── metadata/
 │   ├── manifest.tcia                     # TCIA download spec (pins the exact data)
 │   ├── series_catalog.csv                # Per-series paths, sizes, scanner, supine/prone
-│   ├── raw_metadata/                     # ACRIN 6664 XLSX files (no-polyp, 6-9mm, >=10mm)
+│   ├── raw_metadata/v1/                  # Pre-2026-08 re-saved .xlsx copies (kept for provenance)
+│   ├── raw_metadata/v2_2026-08-24/       # TCIA Version 2 release: polyp .xls, clinical TSV, dictionaries
 │   └── csv_metadata/                     # Processed CSVs + split label files
 ├── tools/                                # NBIA retriever RPM (git-ignored; extracted here on first download)
+├── docs/
+│   ├── experiments.md                    # Run log, protocol, pre-registered Phase 2 ladder
+│   ├── experiment_results.csv            # Machine-written metrics, one row per scored encoder
+│   └── research_notes.md                 # Standing findings about the data and the code
 ├── notebooks/                            # Dataset characterization + transform validation
 ├── requirements.txt
 ├── environment.yml                       # conda env "moco_env"
-├── CLAUDE.md                             # operational notes (paths, env, conventions)
 └── LICENSE
 ```
 

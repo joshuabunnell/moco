@@ -9,8 +9,7 @@ description: Refreshes the local ASU Research Computing docs mirror at ~/sol-doc
 
 `~/sol-docs/` is a local markdown mirror of `docs.rc.asu.edu` (ASU Research
 Computing's documentation site for the Sol and Phoenix supercomputers), kept
-at user root because it's environment reference, not project code — see any
-project's `CLAUDE.md` for how it's used day to day. It started as a one-time
+at user root because it's environment reference, not project code. It started as a one-time
 manual crawl and had drifted out of sync with the live site (missing the
 whole Voyager self-service rollout, ~90 pages that didn't exist yet, etc.).
 This skill is the maintenance path: run it any time you want the cache

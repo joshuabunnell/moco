@@ -11,7 +11,7 @@ date.
 
 - [Partitions (live `sinfo`)](#partitions-live-sinfo)
 - [QoS available to this account](#qos-available-to-this-account)
-- [The CLAUDE.md 30-day discrepancy](#the-claudemd-30-day-discrepancy)
+- [There is no 30-day owned-node path](#there-is-no-30-day-owned-node-path)
 - [GPU GRES strings (live `sinfo -o %G`)](#gpu-gres-strings-live-sinfo--o-g)
 - [Preemption model](#preemption-model)
 - [Fairshare and CHE cost](#fairshare-and-che-cost)
@@ -57,18 +57,13 @@ and any `grp_<lab>` QoS. There is **no `grp_vkodibag` QoS anywhere in
 `sacctmgr show qos`**: this lab has not bought nodes, so there is no
 fairshare-free owned-node path. Verify before assuming otherwise.
 
-## The CLAUDE.md 30-day discrepancy
+## There is no 30-day owned-node path
 
-`~/moco/CLAUDE.md` says:
-
-> If the lab owns nodes, `general -q grp_vkodibag` gives up-to-30-day walltime
-> with no fairshare cost, check `myaccounts` before long pretraining.
-
-As of 2026-09-02 that path does not exist for this account: no `grp_vkodibag`
-QoS, and `general`'s partition cap is 14 days, not 30. The real ">7 days" option
-today is `-p general -q private -t <=14-0` (preemptable). The CLAUDE.md line's own
-"check `myaccounts` first" caveat is the operative part. Flag this to the user;
-do not silently edit CLAUDE.md.
+Older project notes claimed `general -q grp_vkodibag` gives up-to-30-day walltime
+with no fairshare cost if the lab owns nodes. As of 2026-09-02 that path does not
+exist for this account: no `grp_vkodibag` QoS, and `general`'s partition cap is
+14 days, not 30. The real ">7 days" option today is `-p general -q private
+-t <=14-0` (preemptable). Check `myaccounts` before assuming it has changed.
 
 ## GPU GRES strings (live `sinfo -o %G`)
 

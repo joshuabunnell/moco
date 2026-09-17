@@ -9,7 +9,7 @@ description: Configure, submit, monitor, and debug SLURM jobs on ASU Sol (Resear
 
 Everything the user runs on ASU Sol goes through SLURM, and the knowledge needed
 to configure a job correctly is scattered: the 130-page docs mirror at
-`~/sol-docs/`, a repo's `CLAUDE.md`, and whatever `sbatch` scripts already live in
+`~/sol-docs/`, a repo's own docs, and whatever `sbatch` scripts already live in
 that repo. A session without that context in front of it re-derives partition and
 QoS choices from memory and gets them wrong (invents a `gpu` partition, asks for a
 `long` QoS this account does not have, pads walltime into a maintenance
@@ -25,8 +25,8 @@ decides the outcome and the mirror looks stale (check the date in
 `~/sol-docs/INDEX.md`), offer to run the `sol-docs-refresh` skill first.
 
 **A repo's own files win when they exist.** If the working directory has a
-`jobs/` (or `examples/`) dir of committed `sbatch` scripts, a `config.sh`, and a
-SLURM section in `CLAUDE.md`, those are the source of truth for paths and
+`jobs/` (or `examples/`) dir of committed `sbatch` scripts and a `config.sh`,
+those are the source of truth for paths and
 conventions. This skill defers to them and only supplies what no repo file does.
 
 ## On-cluster facts (verified 2026-09-02, account `grp_vkodibag`)
@@ -70,15 +70,15 @@ of those, run the check, do not trust this file or `~/sol-docs/`:
 | What a specific job actually requested | `scontrol show job <id>` |
 | Would this header even be accepted | `sbatch --test-only <script>` |
 
-If a check contradicts this skill or a repo's `CLAUDE.md`, the live check wins.
+If a check contradicts this skill or a repo's docs, the live check wins.
 Say so, and (for `~/sol-docs/` drift) offer to run the `sol-docs-refresh` skill.
 
 ## Step 0: read the room
 
 Figure out which of three situations you are in before writing anything.
 
-1. **Inside a repo with committed job scripts** (a `jobs/` dir, a `config.sh`, a
-   SLURM section in `CLAUDE.md`). The committed script is the source of truth.
+1. **Inside a repo with committed job scripts** (a `jobs/` dir, a `config.sh`).
+   The committed script is the source of truth.
    Adjust or add a script in `jobs/`, `source` the repo's `config.sh` for paths,
    and follow that repo's naming and `--export=` override patterns. Submit with
    `sbatch jobs/<name>.sh`. **Never paste a job body into the OnDemand web UI**:
