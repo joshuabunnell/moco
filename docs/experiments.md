@@ -649,6 +649,39 @@ cannot work" in `research_notes.md`.
 
 ## Additions queued alongside the ladder
 
+### Acquisition probe: is cross-position matching scanner and body, not anatomy?
+
+Open question 4 after E1. Pre-registered 2026-09-25, before the code.
+`scripts/eval/acquisition_probe.py`, run on the existing bank, so no encoder is
+retrained and every row stays comparable.
+
+- **Descriptor per ACRIN series**, from the first DICOM header of its raw series
+  and from the cached volume: scanner (manufacturer + model), convolution
+  kernel, kVp, reconstruction diameter, in-plane extent and scan length at 1 mm,
+  and body cross-section area (voxels above -500 HU, mm^2) at 25/50/75% depth.
+  Plus the patient's bowel prep and contrast from `clinical_data.csv`, which a
+  patient's two scans always share.
+- **A. Acquisition-only retrieval (no encoder).** Rank the 671 prone scans for
+  each of the 613 supine queries by distance on that descriptor alone:
+  z-scored continuous fields, plus a penalty of 10 per categorical mismatch.
+  Top-1 is how far scanner, protocol and body size get on the main metric
+  without looking at anatomy.
+- **B. Look-alike gallery (per encoder).** Each supine query gets its own
+  gallery: its patient's prone scan(s) plus the 20 other patients' prone scans
+  nearest to it under A's distance. The encoder ranks only within that set.
+  Chance is ~1/21 per query. Scored for random, ImageNet, E0, E1, E1b, and E2 when it lands.
+- **How it will be read, fixed now:**
+  - A top-1 >= 0.50 means acquisition and body size alone match ImageNet's
+    0.494, and the "vs ImageNet" framing needs this caveat up front.
+  - E1/E1b B top-1 >= 0.70: the match is not mainly acquisition or body size;
+    the anatomy reading is supported as far as this descriptor reaches.
+    < 0.30: not supported. In between: partly.
+  - If E1's lead over ImageNet shrinks by more than half on B, the ImageNet
+    comparison is confounded by acquisition and is reported that way.
+- **What it cannot rule out:** anything the descriptor misses. Per-session
+  noise texture (dose), table position and fine body shape are not in it. A
+  high B score narrows the confound; it does not close it.
+
 All three below were implemented 2026-09-16, before E0 (details in
 `research_notes.md` Status B).
 
