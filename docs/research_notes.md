@@ -264,6 +264,22 @@ it; the one-time `mkdir` of the logs dir moved into README "Reproducing the data
   landed. Expect ~5.5-6 h once it starts. **Until it starts, do not edit
   `main_moco.py`, `moco/` or `jobs/`, and commit docs edits promptly**: the
   job records `git diff HEAD` at start, so any uncommitted edit marks it dirty.
+- **E2 started 2026-09-25 10:27 on sg007**, commit `e4d5852`, empty diff,
+  `job.txt` records `CROP_SCALE=160 320`. Staging 525 s, then ~2 min/epoch
+  (the per-view resize costs a little over E1's 1.6), so expect it done around
+  17:30 and scored shortly after.
+- **Acquisition probe submitted 2026-09-25** (open question 4). Design and
+  reading pre-registered in `experiments.md` (`e19c360`) before the code
+  (`ef4fafe`). Job 63948827 describes every ACRIN series and scores random,
+  ImageNet, base, E0, E1, E1b; job 63948828 scores E2 once E2's eval
+  (63947300) succeeds. Results go to `$EVAL_DIR/acquisition_only.json` and
+  `acq_*.json`; not wired into the ledger, since it is a diagnostic, not a
+  rung.
+- **E3 code ready, not submitted** (`8ad84be`, pre-registered in `aa3e93a`).
+  It waits on E2's verdict, which picks its parent. Submit as:
+  `RUN=e3 SAVE_FREQ=10 CROP_OVERLAP="0.3 0.7" WINDOW_JITTER=30`, plus
+  `CROP_SCALE="160 320"` only if E2's prediction held. Queue both scoring
+  jobs `afterok`, as for E2.
 - **Known gap, not fixed:** `jobs/resume_moco.sh` passes neither
   `--crop-overlap` nor `--crop-scale`, so resuming an E1+ run would silently
   continue on the E0 recipe. Only matters if a run has to be resumed; fix
