@@ -254,9 +254,20 @@ it; the one-time `mkdir` of the logs dir moved into README "Reproducing the data
   Josh's advisor sets direction at the level of "use unlabelled data for better
   pretraining for early detection", so the ladder's technical scope calls are
   made here and recorded, not escalated.
-- **Queued for after E1b starts (touches `jobs/`):** have `train_moco.sh` write
-  `CROP_OVERLAP` and the other recipe variables into `job.txt`. Today only sacct
-  records them.
+- ~~**Queued for after E1b starts (touches `jobs/`):** have `train_moco.sh` write
+  `CROP_OVERLAP` and the other recipe variables into `job.txt`.~~ Done
+  2026-09-25 in the E2 commit.
+- **E2 submitted 2026-09-25** (job 63947298, `RUN=e2 SAVE_FREQ=10
+  CROP_OVERLAP="0.3 0.7" CROP_SCALE="160 320"`), scoring queued `afterok` at
+  epochs 20 and 200 (63947299 / 63947300). Implementation and decision rule
+  pre-registered in `experiments.md` (commit `a717f16`) before the code
+  landed. Expect ~5.5-6 h once it starts. **Until it starts, do not edit
+  `main_moco.py`, `moco/` or `jobs/`, and commit docs edits promptly**: the
+  job records `git diff HEAD` at start, so any uncommitted edit marks it dirty.
+- **Known gap, not fixed:** `jobs/resume_moco.sh` passes neither
+  `--crop-overlap` nor `--crop-scale`, so resuming an E1+ run would silently
+  continue on the E0 recipe. Only matters if a run has to be resumed; fix
+  before using it.
 - **Phase 3 design** (the polyp claim, label-efficiency curves, where the linear
   probe comes in) is written up in `experiments.md`.
 
