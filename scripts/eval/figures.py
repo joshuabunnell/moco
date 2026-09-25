@@ -129,7 +129,7 @@ def _middle_crop(bank, index, name):
     return np.asarray(bank[index["row"][mid], 1])
 
 
-def plot_retrieval(plt, bank_dir, names, out, n=4):
+def plot_retrieval(plt, bank_dir, names, out, n=6):
     bank = np.load(os.path.join(bank_dir, "bank.npy"), mmap_mode="r")
     index = load_index(bank_dir)
     data = [_load(bank_dir, m) for m in names]
@@ -158,32 +158,42 @@ def plot_retrieval(plt, bank_dir, names, out, n=4):
     for ax in axes.flat:
         ax.set_xticks([])
         ax.set_yticks([])
-    fig.suptitle("Find this patient's prone scan among 671 (queries drawn at random)",
-                 x=0.02, ha="left", color=INK)
+    rates = []
+    for d in data:
+        s, p = _pairs(d)
+        best = p[np.argmax(d["emb"][s] @ d["emb"][p].T, axis=1)]
+        rates.append(np.mean(d["patients"][best] == d["patients"][s]))
+    fig.suptitle("Find this patient's prone scan among 671. Queries drawn at random.\n"
+                 "Over all 613 queries: " + ", ".join(
+                     "%s %d%% right" % (_label(m), round(100 * r))
+                     for m, r in zip(names, rates)),
+                 x=0.02, ha="left", color=INK, y=1.01)
     fig.savefig(os.path.join(out, "retrieval.png"))
     plt.close(fig)
 
 
 def plot_similarity(plt, bank_dir, names, out):
-    fig, axes = plt.subplots(1, len(names), figsize=(4.2 * len(names), 3.4), sharey=True)
-    bins = np.linspace(-0.2, 1.0, 61)
+    fig, axes = plt.subplots(1, len(names), figsize=(4.2 * len(names), 3.4))
     for ax, name in zip(np.atleast_1d(axes), names):
         d = _load(bank_dir, name)
         sup, pro = _pairs(d)
         sims = d["emb"][sup] @ d["emb"][pro].T
         same = d["patients"][sup][:, None] == d["patients"][pro][None, :]
+        # Each encoder's own range: raw cosines of ReLU features all sit near 1,
+        # so a shared axis hides the shape that matters.
+        bins = np.linspace(np.percentile(sims, 0.5), sims.max(), 50)
         ax.hist(sims[~same], bins=bins, density=True, color=GRAY, alpha=0.8,
                 label="different patients")
         ax.hist(sims[same], bins=bins, density=True, color=BLUE, alpha=0.8,
                 label="same patient")
         ax.set_title(_label(name), loc="left", color=INK)
-        ax.set_xlabel("Similarity of a supine and a prone scan")
+        ax.set_xlabel("Similarity of a supine and a prone scan\n(each panel on its own scale)")
         ax.set_yticks([])
         ax.grid(axis="x", color=GRID)
         ax.set_axisbelow(True)
     np.atleast_1d(axes)[0].legend(frameon=False, loc="upper left")
-    fig.suptitle("Same-patient scan pairs pull away from everyone else", x=0.02,
-                 ha="left", color=INK)
+    fig.suptitle("How similar a patient's two scans look, against everyone else's",
+                 x=0.02, ha="left", color=INK, y=1.04)
     fig.savefig(os.path.join(out, "similarity.png"))
     plt.close(fig)
 
@@ -209,7 +219,9 @@ def plot_depth(plt, bank_dir, names, out, n_crops=8000):
     cb = fig.colorbar(sc, ax=axes, shrink=0.8, ticks=[0, 0.5, 1])
     cb.ax.set_yticklabels(["one end\nof scan", "middle", "other end"])
     fig.suptitle("Each dot is one crop, placed by its features; colour is its depth "
-                 "in the scan", x=0.02, ha="left", color=INK)
+                 "in the scan.\nBoth encoders order crops along the body: a sanity "
+                 "check that features track anatomy, not a difference between them.",
+                 x=0.02, ha="left", color=INK, y=1.06)
     fig.savefig(os.path.join(out, "depth_map.png"))
     plt.close(fig)
 
