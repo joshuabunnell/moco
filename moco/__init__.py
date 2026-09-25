@@ -107,14 +107,39 @@ def _shift_within(pos, span, limit, shift):
     return int(np.clip(pos + shift, 0, limit - span))
 
 
+def _scaled_extent(start, span, limit, side):
+    """Place a crop of *side* about the centre of ``start:start+span``, in bounds.
+
+    Returns ``(lo, hi, pad)``: the slice actually read, and how many rows to pad
+    on each side so the crop is *side* long when the axis is shorter than it.
+    """
+    if side >= limit:
+        return 0, limit, ((side - limit) // 2, side - limit - (side - limit) // 2)
+    lo = int(np.clip(start + span // 2 - side // 2, 0, limit - side))
+    return lo, lo + side, (0, 0)
+
+
+def _resize_inplane(slab, size):
+    """Resize a ``(z, s, s)`` float slab to ``(z, size, size)``, bilinear with antialias."""
+    t = torch.from_numpy(np.ascontiguousarray(slab))[:, None]
+    t = torch.nn.functional.interpolate(t, size=(size, size), mode="bilinear",
+                                        align_corners=False, antialias=True)
+    return t[:, 0].numpy()
+
+
 def random_crop_pair(path, size=224, depth=3, window=HU_WINDOW,
-                     overlap=(0.3, 0.7), z_shift=2):
+                     overlap=(0.3, 0.7), z_shift=2, scale=None):
     """Read two overlapping 2.5D crops of one volume in a single read.
 
     The second crop is offset in-plane so the two share a fraction of their area
     drawn uniformly from *overlap*, split at random between the two axes, plus an
     independent z shift of up to *z_shift* slices. Both crops come from one span
     of the file, since they overlap, so a pair costs about what one crop costs.
+
+    With *scale* ``(low, high)`` (E2), each view's in-plane side is drawn
+    independently from it, in voxels (1 mm), about that view's centre from the
+    draw above, and the windowed crop is resized to *size*. Positions are drawn
+    first and identically, so the only difference from ``scale=None`` is scale.
     """
     fh, shape, dtype = _open_volume(path)
     with fh:
@@ -135,6 +160,10 @@ def random_crop_pair(path, size=224, depth=3, window=HU_WINDOW,
         x1 = _shift_within(x0, dx, nx, np.random.choice([-1, 1]) * shift_x)
         z1 = _shift_within(z0, dz, nz, np.random.randint(-z_shift, z_shift + 1))
 
+        if scale is not None:
+            return _read_scaled_pair(fh, shape, dtype, size, window, scale,
+                                     (z0, y0, x0), (z1, y1, x1), (dz, dy, dx))
+
         z_lo, z_hi = min(z0, z1), max(z0, z1) + dz
         y_lo, y_hi = min(y0, y1), max(y0, y1) + dy
         planes = _read_planes(fh, shape, dtype, z_lo, z_hi - z_lo, y_lo, y_hi - y_lo)
@@ -143,6 +172,30 @@ def random_crop_pair(path, size=224, depth=3, window=HU_WINDOW,
         return planes[z - z_lo:z - z_lo + dz, y:y + dy, x:x + dx]
 
     return _to_monai(crop(z0, y0, x0), window), _to_monai(crop(z1, y1, x1), window)
+
+
+def _read_scaled_pair(fh, shape, dtype, size, window, scale, origin0, origin1, dims):
+    """The *scale* branch of ``random_crop_pair``: resize each view's own FOV to *size*."""
+    nz, ny, nx = shape
+    dz, dy, dx = dims
+    views = []
+    for z, y, x in (origin0, origin1):
+        side = int(round(np.random.uniform(*scale)))
+        views.append((z,) + _scaled_extent(y, dy, ny, side) + _scaled_extent(x, dx, nx, side))
+
+    z_lo = min(v[0] for v in views)
+    z_hi = max(v[0] for v in views) + dz
+    y_lo = min(v[1] for v in views)
+    y_hi = max(v[2] for v in views)
+    planes = _read_planes(fh, shape, dtype, z_lo, z_hi - z_lo, y_lo, y_hi - y_lo)
+
+    out = []
+    for z, ya, yb, ypad, xa, xb, xpad in views:
+        slab = apply_window(planes[z - z_lo:z - z_lo + dz, ya:yb, xa:xb], window)
+        slab = np.pad(slab, ((0, 0), ypad, xpad))
+        slab = _resize_inplane(slab, size)
+        out.append(torch.from_numpy(np.ascontiguousarray(slab.transpose(2, 1, 0)[None])))
+    return out[0], out[1]
 
 
 def to_resnet_format(x):

@@ -38,6 +38,9 @@ esac
 # CROP_OVERLAP="0.3 0.7" draws q and k as two overlapping crops (E1 onward);
 # unset keeps the E0 recipe of one crop augmented twice.
 CROP_OVERLAP="${CROP_OVERLAP:-}"
+# CROP_SCALE="160 320" draws each view's in-plane side in mm and resizes to 224
+# (E2 onward); needs CROP_OVERLAP. Unset keeps a fixed 224 mm crop.
+CROP_SCALE="${CROP_SCALE:-}"
 MOCO_K="${MOCO_K:-16384}"
 EPOCHS="${EPOCHS:-200}"
 RUN="${RUN:-${DATASET}}"
@@ -69,7 +72,11 @@ DATA_DIR=$(stage_data "${DATA_DIR}")
 git rev-parse HEAD > "${OUT_DIR}/git_commit.txt"
 git diff HEAD > "${OUT_DIR}/git_diff.patch"
 git status --short > "${OUT_DIR}/git_status.txt"
-echo "RUN=${RUN} DATASET=${DATASET} SLURM_JOB_ID=${SLURM_JOB_ID}" > "${OUT_DIR}/job.txt"
+# The recipe variables too: before 2026-09-25 only sacct recorded them.
+cat > "${OUT_DIR}/job.txt" <<EOF
+RUN=${RUN} DATASET=${DATASET} SLURM_JOB_ID=${SLURM_JOB_ID}
+CROP_OVERLAP=${CROP_OVERLAP} CROP_SCALE=${CROP_SCALE} MOCO_K=${MOCO_K} EPOCHS=${EPOCHS} SAVE_FREQ=${SAVE_FREQ}
+EOF
 
 # main_moco.py uses mp.spawn internally — no torchrun needed, just --multiprocessing-distributed.
 python main_moco.py "${DATA_DIR}" \
@@ -83,6 +90,7 @@ python main_moco.py "${DATA_DIR}" \
     --moco-k "${MOCO_K}" \
     --crops-per-volume 20 \
     ${CROP_OVERLAP:+--crop-overlap ${CROP_OVERLAP}} \
+    ${CROP_SCALE:+--crop-scale ${CROP_SCALE}} \
     --moco-m 0.999 \
     --moco-t 0.07 \
     --workers 32 \

@@ -57,14 +57,19 @@ class CTMoCoDataset(Dataset):
             pretext task is solvable from a texture fingerprint.
         pair_z_shift: Maximum slice offset between the two crops when
             *pair_overlap* is set.
+        pair_scale: ``(low, high)`` in-plane side in mm drawn per view and
+            resized to 224 (E2), or None for a fixed 224 mm.  Needs *pair_overlap*.
     """
 
     def __init__(self, data_dir, crops_per_volume=20, pair_overlap=None,
-                 pair_z_shift=2):
+                 pair_z_shift=2, pair_scale=None):
+        if pair_scale and not pair_overlap:
+            raise ValueError("pair_scale needs pair_overlap")
         self.files = list_volumes(data_dir)
         self.crops_per_volume = crops_per_volume
         self.pair_overlap = pair_overlap
         self.pair_z_shift = pair_z_shift
+        self.pair_scale = pair_scale
         print(f"Found {len(self.files)} 3D volumes for Pretraining "
               f"({len(self.files) * crops_per_volume} effective samples "
               f"with {crops_per_volume} crops/volume).")
@@ -110,7 +115,8 @@ class CTMoCoDataset(Dataset):
 
         if self.pair_overlap:
             crop_q, crop_k = random_crop_pair(
-                path, overlap=self.pair_overlap, z_shift=self.pair_z_shift)
+                path, overlap=self.pair_overlap, z_shift=self.pair_z_shift,
+                scale=self.pair_scale)
         else:
             # Deep copy so each view gets independent random augmentations.
             # MONAI dict transforms mutate in place — without copies, view_k

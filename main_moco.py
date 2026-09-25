@@ -203,6 +203,15 @@ parser.add_argument(
     type=int,
     help="max slice offset between the two crops of a pair (default: 2)",
 )
+parser.add_argument(
+    "--crop-scale",
+    nargs=2,
+    type=float,
+    default=None,
+    metavar=("LOW", "HIGH"),
+    help="draw each view's in-plane side (mm) from this range and resize to 224 "
+         "(e.g. 160 320, E2); needs --crop-overlap; omit for a fixed 224 mm",
+)
 parser.add_argument("--save-freq", default=50, type=int, help="checkpoint save frequency in epochs (default: 50)")
 parser.add_argument(
     "--output-dir",
@@ -365,6 +374,7 @@ def main_worker(gpu, ngpus_per_node, args):
         crops_per_volume=args.crops_per_volume,
         pair_overlap=tuple(args.crop_overlap) if args.crop_overlap else None,
         pair_z_shift=args.pair_z_shift,
+        pair_scale=tuple(args.crop_scale) if args.crop_scale else None,
     )
 
     if args.distributed:
