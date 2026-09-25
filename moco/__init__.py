@@ -67,6 +67,16 @@ def _read_planes(fh, shape, dtype, z0, nz_read, y0, ny_read):
     return planes.reshape(nz_read, ny, nx)
 
 
+def _jittered_window(window, jitter):
+    """*window* with centre and width each moved by U(-jitter, jitter) HU (E3)."""
+    if not jitter:
+        return window
+    lo, hi = window
+    centre = (lo + hi) / 2.0 + np.random.uniform(-jitter, jitter)
+    width = (hi - lo) + np.random.uniform(-jitter, jitter)
+    return centre - width / 2.0, centre + width / 2.0
+
+
 def _to_monai(slab, window):
     """Window a ``(z, y, x)`` slab and return it as MONAI ``(1, x, y, z)``."""
     return torch.from_numpy(
@@ -128,7 +138,7 @@ def _resize_inplane(slab, size):
 
 
 def random_crop_pair(path, size=224, depth=3, window=HU_WINDOW,
-                     overlap=(0.3, 0.7), z_shift=2, scale=None):
+                     overlap=(0.3, 0.7), z_shift=2, scale=None, window_jitter=0):
     """Read two overlapping 2.5D crops of one volume in a single read.
 
     The second crop is offset in-plane so the two share a fraction of their area
@@ -140,6 +150,9 @@ def random_crop_pair(path, size=224, depth=3, window=HU_WINDOW,
     independently from it, in voxels (1 mm), about that view's centre from the
     draw above, and the windowed crop is resized to *size*. Positions are drawn
     first and identically, so the only difference from ``scale=None`` is scale.
+
+    With *window_jitter* (E3), each view gets its own window, centre and width
+    each moved by up to that many HU, drawn after every position and scale draw.
     """
     fh, shape, dtype = _open_volume(path)
     with fh:
@@ -162,7 +175,8 @@ def random_crop_pair(path, size=224, depth=3, window=HU_WINDOW,
 
         if scale is not None:
             return _read_scaled_pair(fh, shape, dtype, size, window, scale,
-                                     (z0, y0, x0), (z1, y1, x1), (dz, dy, dx))
+                                     (z0, y0, x0), (z1, y1, x1), (dz, dy, dx),
+                                     window_jitter)
 
         z_lo, z_hi = min(z0, z1), max(z0, z1) + dz
         y_lo, y_hi = min(y0, y1), max(y0, y1) + dy
@@ -171,10 +185,12 @@ def random_crop_pair(path, size=224, depth=3, window=HU_WINDOW,
     def crop(z, y, x):
         return planes[z - z_lo:z - z_lo + dz, y:y + dy, x:x + dx]
 
-    return _to_monai(crop(z0, y0, x0), window), _to_monai(crop(z1, y1, x1), window)
+    w0, w1 = _jittered_window(window, window_jitter), _jittered_window(window, window_jitter)
+    return _to_monai(crop(z0, y0, x0), w0), _to_monai(crop(z1, y1, x1), w1)
 
 
-def _read_scaled_pair(fh, shape, dtype, size, window, scale, origin0, origin1, dims):
+def _read_scaled_pair(fh, shape, dtype, size, window, scale, origin0, origin1, dims,
+                      window_jitter=0):
     """The *scale* branch of ``random_crop_pair``: resize each view's own FOV to *size*."""
     nz, ny, nx = shape
     dz, dy, dx = dims
@@ -189,9 +205,10 @@ def _read_scaled_pair(fh, shape, dtype, size, window, scale, origin0, origin1, d
     y_hi = max(v[2] for v in views)
     planes = _read_planes(fh, shape, dtype, z_lo, z_hi - z_lo, y_lo, y_hi - y_lo)
 
+    windows = [_jittered_window(window, window_jitter) for _ in views]
     out = []
-    for z, ya, yb, ypad, xa, xb, xpad in views:
-        slab = apply_window(planes[z - z_lo:z - z_lo + dz, ya:yb, xa:xb], window)
+    for (z, ya, yb, ypad, xa, xb, xpad), w in zip(views, windows):
+        slab = apply_window(planes[z - z_lo:z - z_lo + dz, ya:yb, xa:xb], w)
         slab = np.pad(slab, ((0, 0), ypad, xpad))
         slab = _resize_inplane(slab, size)
         out.append(torch.from_numpy(np.ascontiguousarray(slab.transpose(2, 1, 0)[None])))

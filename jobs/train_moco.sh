@@ -41,6 +41,9 @@ CROP_OVERLAP="${CROP_OVERLAP:-}"
 # CROP_SCALE="160 320" draws each view's in-plane side in mm and resizes to 224
 # (E2 onward); needs CROP_OVERLAP. Unset keeps a fixed 224 mm crop.
 CROP_SCALE="${CROP_SCALE:-}"
+# WINDOW_JITTER=30 moves each view's HU window centre and width by up to 30 HU
+# (E3 onward); needs CROP_OVERLAP. Unset keeps the fixed [-150, 250] window.
+WINDOW_JITTER="${WINDOW_JITTER:-}"
 MOCO_K="${MOCO_K:-16384}"
 EPOCHS="${EPOCHS:-200}"
 RUN="${RUN:-${DATASET}}"
@@ -75,7 +78,7 @@ git status --short > "${OUT_DIR}/git_status.txt"
 # The recipe variables too: before 2026-09-25 only sacct recorded them.
 cat > "${OUT_DIR}/job.txt" <<EOF
 RUN=${RUN} DATASET=${DATASET} SLURM_JOB_ID=${SLURM_JOB_ID}
-CROP_OVERLAP=${CROP_OVERLAP} CROP_SCALE=${CROP_SCALE} MOCO_K=${MOCO_K} EPOCHS=${EPOCHS} SAVE_FREQ=${SAVE_FREQ}
+CROP_OVERLAP=${CROP_OVERLAP} CROP_SCALE=${CROP_SCALE} WINDOW_JITTER=${WINDOW_JITTER} MOCO_K=${MOCO_K} EPOCHS=${EPOCHS} SAVE_FREQ=${SAVE_FREQ}
 EOF
 
 # main_moco.py uses mp.spawn internally — no torchrun needed, just --multiprocessing-distributed.
@@ -91,6 +94,7 @@ python main_moco.py "${DATA_DIR}" \
     --crops-per-volume 20 \
     ${CROP_OVERLAP:+--crop-overlap ${CROP_OVERLAP}} \
     ${CROP_SCALE:+--crop-scale ${CROP_SCALE}} \
+    ${WINDOW_JITTER:+--window-jitter ${WINDOW_JITTER}} \
     --moco-m 0.999 \
     --moco-t 0.07 \
     --workers 32 \
