@@ -553,6 +553,24 @@ checkpoint:
   already-clipped band. See the Phase 1 decision.
 - **Prediction:** small positive. Largest effect on the subset that took
   iodinated oral contrast, since tagging is the intensity-dependent signal.
+- **Implementation, fixed before the code (2026-09-25):**
+  - Parent chosen by E2's decision rule: E2's recipe if E2's prediction held,
+    otherwise E1's. Written into E3's submission, not decided after.
+  - Per view, independently: window centre 50 + U(-30, 30) HU and width
+    400 + U(-30, 30) HU, so `[-150, 250]` on average. Drawn after the
+    position and scale draws. Flag `--window-jitter 30`, `WINDOW_JITTER=30`.
+  - The bank keeps the fixed `[-150, 250]` window. E3 jitters around it, so
+    it is scored on the same bank and stays comparable (see "The HU window" in
+    `research_notes.md`).
+- **Decision rule, fixed before running (2026-09-25).** Against the parent
+  (E1/E1b mean if E1; E2's single run if E2):
+  - *Held:* cross-position >= parent - 0.04 and `any_series` >= parent + 0.06,
+    or cross-position >= parent + 0.04.
+  - *Harmful:* cross-position < parent - 0.04.
+  - *No detectable effect:* anything else.
+  - The contrast-subset half of the prediction cannot be scored with the
+    current metrics (no per-subset retrieval), so it is recorded as untested,
+    not as held or failed.
 
 ### E4 — exclude same-volume keys from the negatives
 
