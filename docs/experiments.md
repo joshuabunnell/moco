@@ -700,6 +700,44 @@ retrained and every row stays comparable.
   noise texture (dose), table position and fine body shape are not in it. A
   high B score narrows the confound; it does not close it.
 
+### Acquisition probe — result (2026-09-25, job 63948827)
+
+Descriptor coverage: scanner 94%, kernel 99.9%, prep/contrast 91% (missing
+values count as a category of their own). Inside the probe, each encoder's
+full-gallery top-1 reproduces its ledger value exactly (ImageNet 0.4943, E1
+0.8728), so B is scored on the same embeddings as the ladder.
+
+| Encoder | full gallery (671) | look-alike gallery (21) | misses on look-alikes |
+|---|---|---|---|
+| Acquisition only (A, no encoder) | **0.538** | — | — |
+| Untrained | 0.024 | 0.131 | 87% |
+| ImageNet | 0.494 | 0.719 | 28% |
+| MoCo original recipe (base) | 0.315 | 0.688 | 31% |
+| E0 | 0.356 | 0.682 | 32% |
+| E1 | 0.873 | **0.972** | 3% |
+| E1b | 0.874 | **0.967** | 3% |
+
+Chance on the look-alike gallery is 0.050.
+
+**Verdicts against the pre-registered reading:**
+
+- **A = 0.538 >= 0.50: the caveat fires.** Scanner, kernel, kVp, field of
+  view, scan length and body cross-section alone match 54% of patients, more
+  than ImageNet's 49%. So "1.77x ImageNet" oversells what ImageNet's number
+  means. The fairer bar is that metadata-only 54%, and E1's 87% clears it by
+  33 points, where ImageNet falls 4 points below it.
+- **E1/E1b B = 0.972 / 0.967 >= 0.70: the anatomy reading is supported**, as
+  far as this descriptor reaches. Among 20 patients scanned on the same kind
+  of machine and protocol and with the most similar body size, E1 still picks
+  the right one 97% of the time. The two retrains agree to 0.005.
+- **E1's lead over ImageNet shrinks by a third, not by half** (0.379 to 0.253),
+  so the comparison is not confounded by acquisition on the pre-registered
+  rule. Framed as misses: ImageNet gets 28% of look-alike queries wrong, E1 3%.
+- Old recipes (base, E0) sit just below ImageNet on B too, so E1's change is
+  what separated same-session look-alikes; the earlier recipes did not.
+- Open question 4 is answered to the extent above. What remains open is
+  only what the descriptor cannot see (dose texture, table, fine body shape).
+
 All three below were implemented 2026-09-16, before E0 (details in
 `research_notes.md` Status B).
 

@@ -275,6 +275,24 @@ it; the one-time `mkdir` of the logs dir moved into README "Reproducing the data
   (63947300) succeeds. Results go to `$EVAL_DIR/acquisition_only.json` and
   `acq_*.json`; not wired into the ledger, since it is a diagnostic, not a
   rung.
+- **Acquisition probe done (2026-09-25, 26 min).** Metadata alone (scanner,
+  protocol, FOV, scan length, body cross-section) matches 54% of supine/prone
+  pairs, above ImageNet's 49%, so ImageNet is a weak bar on this metric and
+  reports should say so. But among each query's 20 closest acquisition
+  look-alikes E1 still picks the right patient 97% (E1b 97%, ImageNet 72%,
+  chance 5%): the E1 result is not scanner/body matching as far as the
+  descriptor reaches. Full table and verdicts under "Acquisition probe —
+  result" in `experiments.md`. Descriptor saved as `$EVAL_DIR/acquisition.csv`.
+- **Explanatory figures (2026-09-25):** `scripts/eval/figures.py` +
+  `jobs/figures.sh` (job 63949242) draw progress, retrieval examples,
+  same/different-patient similarity and a depth-coloured UMAP into
+  `docs/figures/`. The old `visualize_umap.py` coloured one random crop per
+  scan by collection, which mostly shows ACRIN vs Pediatric scanner
+  differences (the 0.997 collection probe), not anatomy. A polyp-coloured
+  UMAP is deliberately not drawn in Phase 2: a whole-scan vector cannot see a
+  6 mm polyp, so its absence of clusters would be expected and uninformative.
+  Polyp figures (label-efficiency curves, polyp score vs size) belong to
+  Phase 3.
 - **E3 code ready, not submitted** (`8ad84be`, pre-registered in `aa3e93a`).
   It waits on E2's verdict, which picks its parent. Submit as:
   `RUN=e3 SAVE_FREQ=10 CROP_OVERLAP="0.3 0.7" WINDOW_JITTER=30`, plus
