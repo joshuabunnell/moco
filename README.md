@@ -129,6 +129,20 @@ sbatch --export=CKPT=checkpoint_0199 jobs/run_lincls.sh    # linear probe a chec
 sbatch --export=CKPT_RUN=acrin,CKPT=checkpoint_0249 jobs/run_umap.sh   # UMAP a checkpoint
 ```
 
+A ladder rung, end to end. Scoring is queued with the training job so it runs
+the moment training succeeds; logging stays manual because the note is a human
+call:
+
+```bash
+JOB=$(sbatch --parsable --export=ALL,RUN=e2,SAVE_FREQ=10,CROP_OVERLAP="0.3 0.7" jobs/train_moco.sh)
+for c in checkpoint_0019 checkpoint_0199; do
+    sbatch --dependency=afterok:$JOB --export=ALL,ENCODERS=moco,CKPT_RUN=e2,CKPT=$c jobs/eval_repr.sh
+done
+# once scored:
+python scripts/eval/log_experiment.py --run-id E2 --note "..." /scratch/$USER/moco/eval/eval_moco_e2_checkpoint_0*.json
+python scripts/eval/check_ledger.py    # docs tables == ledger == JSONs; run before committing results
+```
+
 Training uses `mp.spawn` internally — no `torchrun` required. Loss drops rapidly
 in the first ~50 epochs then plateaus. To run a stage by hand instead of via
 SLURM, read the corresponding job script — it shows the exact `python` invocation.
@@ -172,6 +186,7 @@ Job scripts live in [`jobs/`](jobs/). Paths are centralized in `jobs/config.sh`
 │       ├── build_crop_bank.py            # Deterministic uint8 crop bank for encoder comparison
 │       ├── eval_repr.py                  # Frozen-encoder metric battery → JSON report
 │       ├── log_experiment.py             # Eval JSON → docs/experiment_results.csv + markdown row
+│       ├── check_ledger.py               # Verify docs tables == ledger == eval JSONs
 │       └── visualize_umap.py             # UMAP projection of backbone features
 ├── jobs/                                 # SLURM job scripts — the job source of truth
 │   ├── config.sh                         # Canonical $USER-derived paths (sourced by all)

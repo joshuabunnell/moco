@@ -13,7 +13,7 @@ findings about the data and the code; that one holds what each run did.
 Kept current message to message: what is in flight, why, and what comes next.
 Settled findings move into the sections below; superseded ones are marked, not deleted.
 
-**As of 2026-09-16.** Two workstreams: **A** makes the data trustworthy and fast,
+**As of 2026-09-25.** Two workstreams: **A** makes the data trustworthy and fast,
 **B** runs the experiments on it. B's training runs wait on A; B's code does not.
 
 ### A. Data: rebuild the cache from `raw/` (Phase 1)
@@ -197,9 +197,66 @@ it; the one-time `mkdir` of the logs dir moved into README "Reproducing the data
   `experiments.md` before implementation. `random_crop_pair` reads both crops
   from one span; checked against brute-force search on a synthetic volume.
   Watch `Acc@1` at epoch 50 (gate) and alignment cosine on `checkpoint_0019`.
-- **Next after E1:** rerun it unchanged as `e1b` to measure retrain noise, then
-  E2 (scale jitter).
-- **Open:** E1's crop-overlap range, pre-registered before E1 runs.
+- **E1 completed and scored (2026-09-21).** 200 epochs in 5 h 11 m; scored at
+  epochs 20 and 200 (jobs 63759913 / 63759914). Cross-position **0.873**, the
+  first encoder here to beat ImageNet's 0.494, against E0's 0.356. Result and
+  verdict in `experiments.md`. Two gate consequences: the epoch-50 `Acc@1` gate
+  worked as amended (37.8%), and the **alignment cosine gate is withdrawn**,
+  because E1 scores higher on it than E0 (0.9936 vs 0.9917 at epoch 20) while
+  being better on everything downstream.
+- **E1b submitted 2026-09-22** (job 63806648, same command and commit as E1,
+  `seed=None` so the draw differs). It exists to price retrain noise: without it
+  no gap between any two ladder rungs is interpretable. Still pending on
+  Priority as of 2026-09-22 (Slurm estimates a 2026-09-23 02:00 start).
+  Verified against E1's submission: same script, same `CROP_OVERLAP`,
+  `SAVE_FREQ`, `DATASET`. Scoring is queued behind it (jobs 63811030 /
+  63811031, `afterok`), so both checkpoints are scored when training ends.
+  **Until E1b starts, do not edit `main_moco.py`, `moco/` or `jobs/`**: the job
+  reads them from the working tree at start, so an edit would make E1b a
+  different experiment from E1.
+- **Docs brought in line with E1 (2026-09-22):** alignment gate struck from
+  Kill gates, ImageNet bar marked cleared, later rungs judged against their
+  parent, RankMe read as a floor detector only, E4's prediction marked
+  superseded. Query count corrected to 613 (671 gallery) where the measurement
+  section still said 601 from the old bank.
+- **Next after E1b:** E2 (scale jitter), unchanged. Three questions are open for
+  the scope discussion and listed under E1's result in `experiments.md`:
+  headroom on the main metric (E1 at 0.873), E4's already-met prediction, and
+  how many rungs to run before Phase 3. Added the same day: E5 would train on
+  the retrieval metric's own supine/prone pairs, so it cannot be scored on it
+  as things stand.
+- **Recorded 2026-09-22 (questions from the report):** how the evaluation scans
+  were chosen and how that differs from a train/val/test split
+  (`experiments.md`, "Where the evaluation scans come from"), and the HU window
+  history (Research notes, "The HU window"). Neither changes the plan. The first
+  surfaced the E5 issue above, and a caveat for reporting E1: MoCo was
+  pretrained on the scans it is scored on, while ImageNet never saw them.
+- **Verification added (2026-09-22).** `scripts/eval/check_ledger.py` checks that
+  every results table in `experiments.md` matches the ledger and that every
+  ledger row matches its eval JSON. Run it before committing results; it exits
+  nonzero on a mismatch (tested by planting a typo). Separately, a cold-start
+  agent audited the E0/E1 write-ups against raw artifacts: numbers and provenance
+  all held, and five interpretation claims were corrected in place (see "Audit,
+  2026-09-22" under E1's result). The one that matters most for reporting: "the
+  match has to come from anatomy" is untested, because supine and prone scans
+  share scanner and body size. That is open question 4.
+- **E1b done and scored (2026-09-25 write-up; trained 2026-09-22 20:09 to
+  09-23 01:46, sg027).** Cross-position 0.874 against E1's 0.873: E1
+  replicates, and retrain noise on the main metric is far below sampling noise.
+  Retrain moves `any_series` ~0.04 and `knn_polyp` ~0.02. Epoch 20 does *not*
+  replicate (0.501 vs 0.160: E1b's loss sat near uniform far longer), so early
+  checkpoints cannot rank recipes. Logged to the ledger; `check_ledger.py` OK.
+  Details in `experiments.md`, "E1b — result".
+- **Decided 2026-09-25 (by Claude, on Josh's instruction to keep the ladder
+  moving; reversible):** run E2 next as pre-registered, without waiting on the
+  scope questions. None of them blocks E2: E4 and E5 are the rungs they affect,
+  and the headroom question is answered well enough by E1b to judge E2.
+  Josh's advisor sets direction at the level of "use unlabelled data for better
+  pretraining for early detection", so the ladder's technical scope calls are
+  made here and recorded, not escalated.
+- **Queued for after E1b starts (touches `jobs/`):** have `train_moco.sh` write
+  `CROP_OVERLAP` and the other recipe variables into `job.txt`. Today only sacct
+  records them.
 - **Phase 3 design** (the polyp claim, label-efficiency curves, where the linear
   probe comes in) is written up in `experiments.md`.
 
@@ -343,6 +400,38 @@ air/wall edge survives clipping so it is defensible. If the polyp task
 underperforms, re-prep only the ~350 labelled ACRIN patients to test a wider
 window, not all 2074 volumes. Requires `raw/` to be restored first.
 
+### The HU window: value never changed, where it is applied did
+
+Recorded 2026-09-22, traced through git history.
+
+- **The value has been `[-150, 250]` HU since the first prep script**
+  (`9e735a6`, 2026-02-25). It is a standard soft-tissue window: colon wall, fat
+  and muscle keep contrast, while gas (below -150) clips to 0 and bone (above
+  250) clips to 1. It rescales linearly to [0, 1]. No run has used any other
+  value, and ImageNet normalisation is never applied to CT input for MoCo runs.
+- **Until 2026-09-16 it was baked into the cache.** `prep_data.py` applied it
+  with MONAI `ScaleIntensityRanged` before saving, so the `.pt` files held only
+  windowed values. The original HU outside the window was gone, and changing
+  the window meant re-running prep from DICOM.
+- **Since 2026-09-16 (`9643f7a`) it is applied when a crop is read.** The
+  cache stores raw int16 HU. The window lives in `moco.HU_WINDOW` and is
+  applied by `moco.apply_window` inside `random_crop` / `random_crop_pair`
+  (training) and in `build_crop_bank.py` (evaluation). Checked against the
+  legacy cache: identical up to +/-0.5 HU of int16 rounding. P0r confirmed
+  the move is neutral.
+- **Why it moved:** two planned experiments need HU outside the current
+  window. E3 jitters the window centre and width per view, which on a
+  pre-clipped cache would only shuffle levels inside an already-clipped band.
+  And the open question of whether a wider window helps polyp detection
+  (clipping sends 37-61% of each volume, all the gas, to exactly 0) can now be
+  tested without re-prepping.
+- **Consequence to keep in mind:** the crop bank is stored as uint8 *after*
+  windowing, so it is tied to `[-150, 250]`. A run trained on a different
+  window has to be scored on a bank rebuilt with that window, and then every
+  prior run re-scored on it (protocol rule 4). E3 jitters around the same
+  centre, so it can still use the current bank. A change to the base window
+  could not.
+
 ### Unused signal already on disk
 
 - **Polyp slice numbers.** `metadata/raw_metadata/*.xlsx` columns B and C are
@@ -440,8 +529,9 @@ per volume, attention-pool, classify.
   the negatives** whenever the query comes from that scan. Adjacent slabs of one
   colon are being pushed apart while identical pixels are being pulled together;
   both pressures favour instance fingerprinting.
-  Watch `Acc@1`: still >95% by epoch 20 means the augmentations are still too
-  weak. Healthy is roughly 60-85%.
+  Watch `Acc@1`: still >95% by epoch 50 (moved from epoch 20 after E0; see the
+  kill gates in `experiments.md`) means the augmentations are still too weak.
+  Healthy is roughly 60-85%.
 - **Phase 3.** Evaluate with the localisation data: polyp-slab probe from the 74
   slice indices (annotated slab positive, random slabs from no-polyp patients
   negative), reporting **AUROC and balanced accuracy** on a patient-level split.
