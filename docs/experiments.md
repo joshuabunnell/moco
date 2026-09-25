@@ -520,6 +520,28 @@ checkpoint:
   required. This is the closest HU-safe analogue of RandomResizedCrop.
 - **Prediction:** smaller than E1 but positive; most visible on `any_series`,
   which rewards matching across reconstructions at differing effective scale.
+- **Implementation, fixed before the code (2026-09-25):**
+  - Positions are drawn exactly as in E1 (224 mm reference crop, 30-70%
+    overlap, z shift +/-2). Each view's in-plane side is then drawn
+    independently, uniform in 160-320 mm, about that view's E1 centre. So the
+    diff vs E1 is scale only; realised overlap now varies with the two sizes,
+    which is inherent to scale jitter.
+  - A crop that would run off the volume is moved inward to fit; an axis
+    shorter than the crop is taken whole and zero-padded (0 after windowing,
+    what `ResizeWithPadOrCropd` already pads with).
+  - The windowed crop is resized in-plane to 224 x 224, bilinear with
+    antialiasing. Depth stays 3 slices at 1 mm: this is in-plane scale only.
+  - Flags: `--crop-scale 160 320`, `CROP_SCALE="160 320"` in `train_moco.sh`.
+    Everything else as E1: `RUN=e2 SAVE_FREQ=10 CROP_OVERLAP="0.3 0.7"`.
+  - The crop bank is unchanged (fixed 224 mm), so E2 is scored on the same
+    bank as E0/E1/E1b and every row stays comparable.
+- **Decision rule, fixed before running (2026-09-25).** Thresholds combine
+  E1b's retrain spread with sampling noise, against the E1/E1b mean (cross 0.874,
+  any_series 0.444):
+  - *Prediction held:* `any_series` top-1 >= 0.50 and cross-position >= 0.83.
+  - *Harmful:* cross-position < 0.83. E3 then builds on E1, not E2.
+  - *No detectable effect:* anything else. E3 builds on E1 (the simpler
+    recipe), and E2 is recorded as a null, not a failure of the idea.
 
 ### E3 — HU window jitter
 
