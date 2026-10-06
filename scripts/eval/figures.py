@@ -99,26 +99,29 @@ def plot_progress(plt, ledger, out):
              ("E2:moco:checkpoint_0199.pth.tar", "E2: + zoom jitter"),
              ("E3:moco:checkpoint_0199.pth.tar", "E3: + contrast jitter")]
     order = [(k, n) for k, n in order if k in rows]
-    vals = [float(rows[k]["cross_position_top1"]) for k, _ in order]
+    # Main metric left; any_series right, labelled secondary because a
+    # near-duplicate reconstruction can be a correct answer there.
+    panels = [("cross_position_top1", "Main: supine scan to the same\npatient's prone scan (of 671)"),
+              ("any_series_top1", "Secondary: any scan to another scan\nof the same patient (of 1744)")]
     colors = [GRAY if k.startswith("P0r:") else BLUE for k, _ in order]
-    fig, ax = plt.subplots(figsize=(7.5, 0.5 * len(order) + 1.4))
     y = np.arange(len(order))[::-1]
-    ax.barh(y, vals, color=colors, height=0.62)
-    for yi, v in zip(y, vals):
-        ax.text(v + 0.012, yi, "%d%%" % round(100 * v), va="center", color=INK)
-    ax.axvline(float(rows["P0r:imagenet"]["cross_position_top1"]), color=INK_2,
-               lw=1, ls="--")
-    ax.set_yticks(y, [n for _, n in order])
-    ax.set_xlim(0, 1)
-    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: "%d%%" % (100 * v)))
-    ax.set_xlabel("Supine scan matched to the same patient's prone scan (top-1, of 671)")
-    ax.set_title("Pretraining on unlabelled CT: patient matching across positions",
-                 loc="left", color=INK)
-    ax.text(0, -0.9 / (0.5 * len(order) + 1.4), "Chance is 0.16%. Dashed line: "
-            "ImageNet, the standard starting point.", transform=ax.transAxes,
-            color=INK_2, fontsize=9)
-    ax.grid(axis="x", color=GRID)
-    ax.set_axisbelow(True)
+    fig, axes = plt.subplots(1, 2, sharey=True, figsize=(10.5, 0.5 * len(order) + 1.8))
+    for ax, (col, xlabel) in zip(axes, panels):
+        vals = [float(rows[k][col]) for k, _ in order]
+        ax.barh(y, vals, color=colors, height=0.62)
+        for yi, v in zip(y, vals):
+            ax.text(v + 0.012, yi, "%d%%" % round(100 * v), va="center", color=INK)
+        ax.axvline(float(rows["P0r:imagenet"][col]), color=INK_2, lw=1, ls="--")
+        ax.set_xlim(0, 1)
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: "%d%%" % (100 * v)))
+        ax.set_xlabel(xlabel + ", top-1")
+        ax.grid(axis="x", color=GRID)
+        ax.set_axisbelow(True)
+    axes[0].set_yticks(y, [n for _, n in order])
+    fig.suptitle("Pretraining on unlabelled CT: matching scans of the same patient",
+                 x=0.02, ha="left", color=INK)
+    fig.text(0.02, -0.07, "Chance is under 0.2% in both. Dashed lines: ImageNet, "
+             "the standard starting point.", color=INK_2, fontsize=9)
     fig.savefig(os.path.join(out, "progress.png"))
     plt.close(fig)
 
