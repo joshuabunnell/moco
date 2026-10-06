@@ -298,10 +298,16 @@ it; the one-time `mkdir` of the logs dir moved into README "Reproducing the data
   `RUN=e3 SAVE_FREQ=10 CROP_OVERLAP="0.3 0.7" WINDOW_JITTER=30`, plus
   `CROP_SCALE="160 320"` only if E2's prediction held. Queue both scoring
   jobs `afterok`, as for E2.
-- **Known gap, not fixed:** `jobs/resume_moco.sh` passes neither
-  `--crop-overlap` nor `--crop-scale`, so resuming an E1+ run would silently
-  continue on the E0 recipe. Only matters if a run has to be resumed; fix
-  before using it.
+- **`resume_moco.sh` fixed (2026-10-05).** It used to resume only the legacy
+  `base` checkpoint into a collection dir and passed no recipe flags, so an
+  E1+ run would have silently continued on the E0 recipe. Now
+  `RUN=<run>` resumes that run's newest checkpoint (or `CKPT=`) in place,
+  stages data like `train_moco.sh`, and reads the recipe (overlap, z shift,
+  scale, window jitter, queue size, save frequency) from the `args` the
+  checkpoint saved; checkpoints without `args` (pre-2026-09-16) are refused.
+  Each leg writes `git_*.resume_<jobid>.*` and `job.resume_<jobid>.txt` beside
+  the run's own provenance files. Dry-run on E0/E1/E2 recovered each recipe
+  exactly; not yet exercised on a real resume.
 - **Phase 3 design** (the polyp claim, label-efficiency curves, where the linear
   probe comes in) is written up in `experiments.md`.
 

@@ -69,7 +69,8 @@ directory records the commit, diff and recipe it ran with.
 
 Other jobs: `acquisition_probe.sh` (is retrieval matching scanner/body?),
 `figures.sh` (plain-language figures into `docs/figures/`), `run_lincls.sh`
-(linear probe), `resume_moco.sh`, `refresh_scratch.sh` (avoid the 90-day
+(linear probe), `resume_moco.sh` (continue a run, recipe read from its
+checkpoint), `refresh_scratch.sh` (avoid the 90-day
 `/scratch` purge).
 
 ## Where things are

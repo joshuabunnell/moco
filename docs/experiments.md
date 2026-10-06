@@ -543,6 +543,56 @@ checkpoint:
   - *No detectable effect:* anything else. E3 builds on E1 (the simpler
     recipe), and E2 is recorded as a null, not a failure of the idea.
 
+### E2 — result (trained 2026-09-25, recorded 2026-10-05, job 63947298)
+
+Commit `e4d5852`, empty diff, `job.txt` records `CROP_OVERLAP=0.3 0.7
+CROP_SCALE=160 320`. Ran on sg007, 10:27 to 16:09 (5 h 42 m; ~2 min/epoch,
+the per-view resize costs a little over E1's 1.6). Scored at epochs 20 and 200
+by jobs 63947299 / 63947300 (`afterok`), acquisition probe by 63948828. The
+result sat unrecorded from 2026-09-25 until 2026-10-05; nothing was re-run.
+
+| Run | cross_pos top1 | vs ImageNet | any_series top1 | RankMe | align cos | zpos MAE | polyp bal-acc |
+|---|---|---|---|---|---|---|---|
+| E2:moco:checkpoint_0019.pth.tar | 0.057 | 0.12x | 0.056 | 762.1 | 0.9795 | 0.1878 | 0.329 |
+| E2:moco:checkpoint_0199.pth.tar | 0.878 | 1.78x | 0.575 | 423.6 | 0.9952 | 0.0788 | 0.362 |
+
+Pretext Acc@1 at epoch index 19, 49, 99, 199: 9.27, 3.53, 52.7, 80.6
+(E1: 2.98, 37.8, 78.6, 88.3). Final loss 1.35 (E1 0.83, E1b 0.98): the task
+is harder, as scale jitter should make it. Acc@1 *fell* between epochs 20 and
+50 while loss kept falling (8.77 to 7.15), so the epoch-50 saturation gate
+(95%) was nowhere near firing.
+
+**Verdict: prediction held, on the pre-registered rule.** `any_series` 0.575
+>= 0.50 and cross-position 0.878 >= 0.83. E3 builds on E2's recipe.
+
+| metric | E1/E1b mean | E2 | diff |
+|---|---|---|---|
+| cross_position top1 | 0.874 | 0.878 | +0.004 |
+| any_series top1 | 0.444 | 0.575 | **+0.131** |
+| any_series top5 | — | 0.834 | |
+| knn_zpos MAE | 0.0946 | 0.0788 | -0.016 (better) |
+| knn_polyp bal-acc | 0.395 | 0.362 | -0.033 |
+| knn_prep bal-acc | 0.489 | 0.476 | -0.013 |
+| knn_contrast bal-acc | 0.519 | 0.574 | +0.055 |
+| acquisition look-alike top1 | 0.970 | 0.972 | +0.002 |
+
+- **The gain is where it was predicted, and only there.** `any_series` rose
+  0.131, about three times E1/E1b's retrain gap (0.039) and ~11 sampling SEs
+  (SE 0.012 at n=1738). Cross-position is flat: it was already near ceiling
+  for this bank, and E2 was predicted to move `any_series`, not it.
+- **Depth regression improved again** (0.079, best so far, against random
+  init's 0.104).
+- **`knn_polyp` fell 0.033**, within ~1.5x the 0.02 retrain move. Read as noise;
+  the metric was already shown unable to rank encoders.
+- **`knn_contrast` rose 0.055**, about twice its retrain move (0.025). It is a
+  confounder probe, so higher is the wrong direction: E2 separates tagged from
+  untagged scans a little more. One run, so not yet a finding; E3 (whose
+  prediction is about the contrast subset) is the place to watch it.
+- **Epoch 20 cannot rank recipes**, as E1b already showed: E2's 0.057 there is
+  the latest take-off yet and ends best.
+- **Acquisition probe:** look-alike top-1 0.972, identical to E1. The
+  `any_series` gain is not bought with more scanner/body matching.
+
 ### E3 — HU window jitter
 
 - **Diff vs:** E2. Jitter window centre and width (about +/-30 HU) per view.
@@ -716,6 +766,7 @@ full-gallery top-1 reproduces its ledger value exactly (ImageNet 0.4943, E1
 | E0 | 0.356 | 0.682 | 32% |
 | E1 | 0.873 | **0.972** | 3% |
 | E1b | 0.874 | **0.967** | 3% |
+| E2 (job 63948828, added 2026-10-05) | 0.878 | **0.972** | 3% |
 
 Chance on the look-alike gallery is 0.050.
 
