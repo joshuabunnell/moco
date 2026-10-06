@@ -13,7 +13,7 @@ findings about the data and the code; that one holds what each run did.
 Kept current message to message: what is in flight, why, and what comes next.
 Settled findings move into the sections below; superseded ones are marked, not deleted.
 
-**As of 2026-09-25.** Two workstreams: **A** makes the data trustworthy and fast,
+**As of 2026-10-05.** Two workstreams: **A** makes the data trustworthy and fast,
 **B** runs the experiments on it. B's training runs wait on A; B's code does not.
 
 ### A. Data: rebuild the cache from `raw/` (Phase 1)
@@ -293,11 +293,24 @@ it; the one-time `mkdir` of the logs dir moved into README "Reproducing the data
   6 mm polyp, so its absence of clusters would be expected and uninformative.
   Polyp figures (label-efficiency curves, polyp score vs size) belong to
   Phase 3.
-- **E3 code ready, not submitted** (`8ad84be`, pre-registered in `aa3e93a`).
-  It waits on E2's verdict, which picks its parent. Submit as:
-  `RUN=e3 SAVE_FREQ=10 CROP_OVERLAP="0.3 0.7" WINDOW_JITTER=30`, plus
-  `CROP_SCALE="160 320"` only if E2's prediction held. Queue both scoring
-  jobs `afterok`, as for E2.
+- **E2 done, recorded 2026-10-05** (trained and scored 2026-09-25, jobs
+  63947298 / 63947299 / 63947300 / acquisition 63948828; the write-up was
+  missed for ten days, nothing re-run). Cross-position 0.878 (flat),
+  `any_series` **0.575** (+0.131 over the E1/E1b mean, ~3x retrain spread),
+  depth MAE 0.079 (best yet), acquisition look-alike 0.972 (same as E1).
+  **Prediction held** on the pre-registered rule, so E3's parent is E2. One
+  thing to watch: `knn_contrast` rose 0.055 (confounder probe, higher is the
+  wrong direction), about 2x its retrain move. Full verdict in `experiments.md`.
+- **E3 submitted 2026-10-05** (job 64727212, `RUN=e3 SAVE_FREQ=10
+  CROP_OVERLAP="0.3 0.7" CROP_SCALE="160 320" WINDOW_JITTER=30`, on E2's
+  recipe per E2's verdict), from clean commit `6ef7c42`. Scoring at epochs 20
+  and 200 queued `afterok` (64727213 / 64727214), acquisition probe after the
+  epoch-200 score (64727215). Expect ~6 h once it starts. Until it starts, do
+  not edit `main_moco.py`, `moco/` or `jobs/`, and commit docs edits promptly.
+  On completion: `log_experiment.py --run-id E3`, write the result against
+  E3's decision rule (parent = E2's single run: cross 0.878, any_series
+  0.575), `check_ledger.py`, then refresh figures (`jobs/figures.sh` with
+  `RUNS` ending in whichever of E2/E3 the verdict keeps).
 - **`resume_moco.sh` fixed (2026-10-05).** It used to resume only the legacy
   `base` checkpoint into a collection dir and passed no recipe flags, so an
   E1+ run would have silently continued on the E0 recipe. Now
