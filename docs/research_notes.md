@@ -13,7 +13,7 @@ findings about the data and the code; that one holds what each run did.
 Kept current message to message: what is in flight, why, and what comes next.
 Settled findings move into the sections below; superseded ones are marked, not deleted.
 
-**As of 2026-10-05.** Two workstreams: **A** makes the data trustworthy and fast,
+**As of 2026-10-06.** Two workstreams: **A** makes the data trustworthy and fast,
 **B** runs the experiments on it. B's training runs wait on A; B's code does not.
 
 ### A. Data: rebuild the cache from `raw/` (Phase 1)
@@ -313,6 +313,17 @@ it; the one-time `mkdir` of the logs dir moved into README "Reproducing the data
   E3's decision rule (parent = E2's single run: cross 0.878, any_series
   0.575), `check_ledger.py`, then refresh figures (`jobs/figures.sh` with
   `RUNS` ending in whichever of E2/E3 the verdict keeps).
+- **E3 done 2026-10-06, harmful** (job 64731828 started 23:38 despite a
+  2026-10-08 estimate, ran 5 h 36 m; clean commit `3696e07`). Cross-position
+  0.791 (E2 0.878), `any_series` 0.313 (E2 0.575), depth flat, contrast probe
+  to chance. Code checked, no bug found. Reading: absolute HU intensity
+  carries patient identity that E1/E2 use. Recipe parent stays **E2**. E3
+  kept as a Phase 3 candidate, since intensity invariance could still help
+  polyp vs tagged stool. Verdict in `experiments.md`.
+- **Next decision (open):** the ladder's remaining rungs. E4 needs a new
+  falsifiable prediction (E1 already met its target) or to be dropped; E5
+  (supine/prone positives) would train on the main metric's own task. Option
+  on the table: stop the ladder at E2 and start Phase 3.
 - **Ladder runs need under 6 h; submit them with `-t 0-09:00:00`.** The
   3-day header limit only hurts scheduling (Sol refuses `scontrol update`
   on a queued job, so the fix is cancel and resubmit). Figures now compare

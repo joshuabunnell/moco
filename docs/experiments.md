@@ -622,6 +622,56 @@ is harder, as scale jitter should make it. Acc@1 *fell* between epochs 20 and
     current metrics (no per-subset retrieval), so it is recorded as untested,
     not as held or failed.
 
+### E3 — result (2026-10-06, job 64731828)
+
+Commit `3696e07`, empty diff, `job.txt` records `CROP_OVERLAP=0.3 0.7
+CROP_SCALE=160 320 WINDOW_JITTER=30`, so E2's recipe plus the jitter, as E2's
+verdict required. Ran 23:38 to 05:14 (5 h 36 m). Scored by 64731830 /
+64731831, acquisition probe 64731832.
+
+| Run | cross_pos top1 | vs ImageNet | any_series top1 | RankMe | align cos | zpos MAE | polyp bal-acc |
+|---|---|---|---|---|---|---|---|
+| E3:moco:checkpoint_0019.pth.tar | 0.201 | 0.41x | 0.120 | 461.9 | 0.9909 | 0.1191 | 0.361 |
+| E3:moco:checkpoint_0199.pth.tar | 0.791 | 1.60x | 0.313 | 430.2 | 0.9956 | 0.0804 | 0.294 |
+
+Pretext Acc@1 at epoch index 19, 49, 99, 199: 0.90, 16.8, 63.0, 81.2 (E2:
+9.27, 3.53, 52.7, 80.6). Final loss 1.25 (E2 1.35): the pretext task was no
+harder than E2's.
+
+**Verdict: harmful, on the pre-registered rule.** Cross-position 0.791 <
+0.838 (E2's 0.878 - 0.04). The next rung builds on E2, not E3.
+
+| metric | E2 | E3 | diff |
+|---|---|---|---|
+| cross_position top1 | 0.878 | 0.791 | **-0.087** |
+| any_series top1 | 0.575 | 0.313 | **-0.262** |
+| knn_zpos MAE | 0.0788 | 0.0804 | +0.002 (flat) |
+| knn_polyp bal-acc | 0.362 | 0.294 | -0.068 |
+| knn_prep bal-acc | 0.476 | 0.441 | -0.035 |
+| knn_contrast bal-acc | 0.574 | 0.500 | -0.074 (to chance) |
+| acquisition look-alike top1 | 0.972 | 0.951 | -0.021 |
+
+- **Not a bug, as far as checked.** Each view gets its own window, centre and
+  width each U(-30, 30) HU about `[-150, 250]`, drawn from the same per-worker
+  numpy stream as the crop positions that worked in E1/E2. The pretext task
+  trained normally. Not yet checked by eye on rendered pairs.
+- **Reading: absolute intensity carries patient identity.** Jitter teaches the
+  encoder to ignore small HU shifts, and both retrieval metrics fell, most of
+  all `any_series` (where same-acquisition reconstructions share exact
+  intensities). Depth (anatomy layout) is untouched. So part of what E1/E2
+  match on is intensity: tissue density, tagging, possibly scanner
+  calibration. Some of that is patient (fat, bone density), some may be
+  acquisition, and these metrics cannot split the two.
+- **The contrast probe fell to chance (0.574 to 0.500)**, which is what the
+  jitter should do to a tagging-sensitive encoder. That is the one intended
+  effect visible here; E3 removes the tagging signal E2 picked up.
+- **Caveat for Phase 3:** the retrieval metric rewards intensity cues that may
+  or may not help find polyps. Tagged stool vs polyp is an intensity question,
+  so E3 could still be the better polyp encoder. Phase 3 should score E2 and
+  E3 both, not only the retrieval winner.
+- One run. The drop (0.087) is ~40x E1/E1b's retrain gap on cross-position, so
+  a repeat would not change the verdict.
+
 ### E4 — exclude same-volume keys from the negatives
 
 - **Diff vs:** E3. Mask keys drawn from the query's own volume out of the queue.
