@@ -301,16 +301,23 @@ it; the one-time `mkdir` of the logs dir moved into README "Reproducing the data
   **Prediction held** on the pre-registered rule, so E3's parent is E2. One
   thing to watch: `knn_contrast` rose 0.055 (confounder probe, higher is the
   wrong direction), about 2x its retrain move. Full verdict in `experiments.md`.
-- **E3 submitted 2026-10-05** (job 64727212, `RUN=e3 SAVE_FREQ=10
+- **E3 submitted 2026-10-05** (first as 64727212, cancelled unstarted
+  when Slurm estimated a 2026-10-08 start under its 3-day limit; resubmitted
+  with `-t 0-09:00:00` as job 64731828, `RUN=e3 SAVE_FREQ=10
   CROP_OVERLAP="0.3 0.7" CROP_SCALE="160 320" WINDOW_JITTER=30`, on E2's
   recipe per E2's verdict), from clean commit `6ef7c42`. Scoring at epochs 20
-  and 200 queued `afterok` (64727213 / 64727214), acquisition probe after the
-  epoch-200 score (64727215). Expect ~6 h once it starts. Until it starts, do
+  and 200 queued `afterok` (64731830 / 64731831), acquisition probe after the
+  epoch-200 score (64731832). Expect ~6 h once it starts. Until it starts, do
   not edit `main_moco.py`, `moco/` or `jobs/`, and commit docs edits promptly.
   On completion: `log_experiment.py --run-id E3`, write the result against
   E3's decision rule (parent = E2's single run: cross 0.878, any_series
   0.575), `check_ledger.py`, then refresh figures (`jobs/figures.sh` with
   `RUNS` ending in whichever of E2/E3 the verdict keeps).
+- **Ladder runs need under 6 h; submit them with `-t 0-09:00:00`.** The
+  3-day header limit only hurts scheduling (Sol refuses `scontrol update`
+  on a queued job, so the fix is cancel and resubmit). Figures now compare
+  ImageNet against E2 (job 64730255), and `progress.png` has an
+  `any_series` panel, labelled secondary.
 - **`resume_moco.sh` fixed (2026-10-05).** It used to resume only the legacy
   `base` checkpoint into a collection dir and passed no recipe flags, so an
   E1+ run would have silently continued on the E0 recipe. Now
